@@ -1,0 +1,135 @@
+{
+  "name": "pindicadviewer",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "build:electron": "tsc -b && vite build --mode electron",
+    "lint": "oxlint",
+    "preview": "vite preview",
+    "deploy": "npm run build && npx gh-pages -d dist",
+    "electron:dev": "concurrently -k \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:build": "npm run build:electron && electron-builder",
+    "electron:preview": "npm run build:electron && electron . --preview"
+  },
+  "dependencies": {
+    "@react-three/drei": "^10.7.8",
+    "@react-three/fiber": "^9.7.0",
+    "@react-three/postprocessing": "^3.1.1",
+    "earcut": "^3.2.3",
+    "jspdf": "^4.2.1",
+    "lucide-react": "^1.37.0",
+    "occt-import-js": "^0.0.23",
+    "postprocessing": "^6.39.4",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "three": "^0.185.1",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@types/three": "^0.185.4",
+    "@vitejs/plugin-react": "^6.1.0",
+    "concurrently": "^10.0.5",
+    "electron": "^44.0.0",
+    "electron-builder": "^26.15.3",
+    "gh-pages": "^6.3.0",
+    "oxlint": "^1.79.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~6.0.2",
+    "vite": "^8.2.2",
+    "vite-plugin-pwa": "^1.3.0",
+    "wait-on": "^9.1.0"
+  },
+  "build": {
+    "appId": "com.fermeecopindi.pindicadviewer",
+    "productName": "PindiCADViewer",
+    "copyright": "© 2026 Ferme Écologique Pindi",
+    "directories": {
+      "output": "electron-dist"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "public/logo-512.png"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "public/logo.ico",
+      "fileAssociations": [
+        {
+          "ext": "step",
+          "name": "STEP File",
+          "description": "Fichier STEP CAO",
+          "role": "Viewer"
+        },
+        {
+          "ext": "stp",
+          "name": "STP File",
+          "description": "Fichier STP CAO",
+          "role": "Viewer"
+        },
+        {
+          "ext": "stl",
+          "name": "STL File",
+          "description": "Fichier STL 3D",
+          "role": "Viewer"
+        },
+        {
+          "ext": "pindi",
+          "name": "Pindi Project",
+          "description": "Projet PindiCADViewer",
+          "role": "Editor"
+        }
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "public/logo-512.png",
+      "category": "Graphics"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "icon": "public/logo-512.png",
+      "category": "public.app-category.graphics-design"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "public/logo.ico",
+      "uninstallerIcon": "public/logo.ico",
+      "installerHeaderIcon": "public/logo.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "PindiCADViewer",
+      "artifactName": "PindiCADViewer-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "PindiCADViewer-Portable-${version}.${ext}"
+    }
+  }
+}
