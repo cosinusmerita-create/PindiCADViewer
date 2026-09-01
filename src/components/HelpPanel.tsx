@@ -26,8 +26,13 @@ const SECTIONS: SectionDef[] = [
   { id: 'animation', label: '10. Animation et déplacement' },
   { id: 'annotations', label: '11. Annotations' },
   { id: 'export', label: '12. Sauvegarde et export' },
-  { id: 'shortcuts', label: '13. Raccourcis clavier' },
-  { id: 'faq', label: '14. Dépannage et FAQ' },
+  { id: 'flow', label: '13. Flux de fluide' },
+  { id: 'ai-assistant', label: '14. Assistant IA' },
+  { id: 'ai-commands', label: '15. Commandes IA' },
+  { id: 'themes', label: '16. Thèmes' },
+  { id: 'shortcuts', label: '17. Raccourcis clavier' },
+  { id: 'faq', label: '18. Dépannage et FAQ' },
+  { id: 'install', label: '19. Installation PWA et Desktop' },
 ]
 
 function SectionTitle({ children }: { children: ReactNode }) {
@@ -512,8 +517,123 @@ export function HelpPanel() {
               <Body>Web Share sur mobile, téléchargement sur desktop.</Body>
             </section>
 
+            <section id="flow" className="mt-8">
+              <SectionTitle>13. Flux de fluide</SectionTitle>
+              <Body>
+                Bouton <strong className="text-[var(--text-primary)]">Flux d'eau</strong> (icône vagues) dans la toolbar —
+                visualise un écoulement (eau, huile ou air) traversant l'assemblage.
+              </Body>
+              <SubTitle>Tracer un parcours</SubTitle>
+              <List
+                items={[
+                  'Activez le mode, puis cliquez sur le modèle pour poser des points de passage',
+                  "Un clic près du bord d'un trou/alésage accroche automatiquement son centre exact",
+                  "Si un passage traversant évident est détecté, une bannière propose Utiliser / Inverser / Suivant",
+                  'Rappuyez sur un point déjà posé pour le "armer", puis cliquez ailleurs pour le repositionner',
+                  <>
+                    <strong className="text-[var(--text-primary)]">Point précis</strong> — ajoute un point par axe, distance
+                    (mm) et angle par rapport au dernier point
+                  </>,
+                ]}
+              />
+              <SubTitle>Réglages</SubTitle>
+              <List
+                items={[
+                  'Type de fluide : Eau (bleu), Huile (ambre), Air (flèches grises)',
+                  'Trajectoire Linéaire (courbe lissée) ou Circulaire (cercle/hélice avec axe et nombre de tours)',
+                  'Annuler point, Inverser le sens, Effacer pour repartir de zéro',
+                  'Vitesse réglable une fois au moins 2 points placés',
+                ]}
+              />
+              <Body>
+                Bouton <strong className="text-[var(--text-primary)]">Lancer</strong> (dès 2 points) démarre une boucle animée
+                continue ; les pièces passent temporairement à ~35% d'opacité pour voir l'écoulement à l'intérieur, puis
+                reprennent leur opacité d'origine à l'arrêt.
+              </Body>
+              <Tip>Le parcours de fluide est un aide visuel temporaire - il n'est pas sauvegardé dans le fichier .pindi.</Tip>
+            </section>
+
+            <section id="ai-assistant" className="mt-8">
+              <SectionTitle>14. Assistant IA</SectionTitle>
+              <Body>
+                Bouton <strong className="text-[var(--text-primary)]">IA</strong> dans la toolbar — ouvre un panneau de chat
+                pour piloter la vue par commandes en français.
+              </Body>
+              <List
+                items={[
+                  'Boutons rapides : Éclater, Tourner, Présentation, Transparent, Reset, Couleur, Flux',
+                  'Zone de texte libre pour décrire une action avec vos propres mots',
+                  'Historique des messages conservé pendant la session (Effacer pour le vider)',
+                ]}
+              />
+              <Tip>
+                100% local : aucune requête réseau, aucune clé API. Les commandes sont interprétées directement dans le
+                navigateur, ça fonctionne donc aussi hors-ligne (PWA installée).
+              </Tip>
+            </section>
+
+            <section id="ai-commands" className="mt-8">
+              <SectionTitle>15. Commandes IA</SectionTitle>
+              <Body>Décrivez une action en français courant - pas besoin de syntaxe spéciale.</Body>
+              <SubTitle>Exemples par catégorie</SubTitle>
+              <DataTable
+                headers={['Catégorie', 'Exemples']}
+                rows={[
+                  ['Sélection', '« Sélectionne les vis M5 », « Sélectionne tout », « Désélectionne tout »'],
+                  ['Vue éclatée', '« Éclate toutes les pièces à 50% », « Remonte l\'assemblage »'],
+                  ['Rotation', '« Fais tourner l\'arbre sur lui-même », « Tourne la flasque de 90° en Y »'],
+                  ['Translation', '« Monte les vis de 50mm », « Descend la flasque de 40mm en 3 secondes »'],
+                  ['Présentation', '« Lance une présentation lente de la pièce sélectionnée »'],
+                  ['Démontage', '« Démonte l\'assemblage étape par étape » (pièces nommées vis/flasque/joint)'],
+                  ['Couleur', '« Met la flasque_haut en rouge », « Colorie les vis en noir », « Même couleur que le tube »'],
+                  ['Transparence', '« Rends le tube transparent », « Transparence à 30% »'],
+                  ['Visibilité', '« Cache les vis », « Affiche toutes les pièces »'],
+                  ['Flux', '« Trace le parcours de l\'eau dans l\'assemblage », « Arrête le flux »'],
+                  ['Caméra', '« Vue de face », « Vue isométrique »'],
+                  ['Réinitialiser', '« Arrête tout et remets en position initiale »'],
+                ]}
+              />
+              <SubTitle>Combiner plusieurs actions</SubTitle>
+              <Body>
+                Une seule phrase peut enchaîner plusieurs étapes, séparées par une virgule, « puis » ou « et » :
+              </Body>
+              <List
+                items={['« Sélectionne les vis M5, monte-les de 50mm et colorie-les en rouge »']}
+              />
+              <Tip>
+                Si l'IA ne trouve pas une pièce, elle suggère les noms disponibles dans le modèle chargé. Précisez le nom
+                exact si le résultat n'est pas celui attendu. Le zoom caméra, le plan de coupe et les mesures ne sont pas
+                encore pilotables par commande IA - utilisez les outils dédiés de la toolbar pour ces actions.
+              </Tip>
+            </section>
+
+            <section id="themes" className="mt-8">
+              <SectionTitle>16. Thèmes</SectionTitle>
+              <Body>Trois boutons dans la barre de statut (bas droite) :</Body>
+              <List
+                items={[
+                  <>
+                    <strong className="text-[var(--text-primary)]">Mode nuit</strong> — fond sombre, faible fatigue visuelle
+                  </>,
+                  <>
+                    <strong className="text-[var(--text-primary)]">Mode jour</strong> — fond clair
+                  </>,
+                  <>
+                    <strong className="text-[var(--text-primary)]">Mode classique</strong> — palette proche d'un logiciel CAO
+                    traditionnel
+                  </>,
+                ]}
+              />
+              <Body>
+                Le choix est mémorisé (localStorage) pour vos prochaines visites. Au tout premier chargement, sans
+                préférence enregistrée, l'application respecte le réglage clair/sombre de votre système d'exploitation.
+                Changer de thème réapplique aussi la palette de couleurs automatique des pièces qui n'ont pas de couleur
+                personnalisée.
+              </Body>
+            </section>
+
             <section id="shortcuts" className="mt-8">
-              <SectionTitle>13. Raccourcis clavier</SectionTitle>
+              <SectionTitle>17. Raccourcis clavier</SectionTitle>
               <DataTable
                 headers={['Touche', 'Action']}
                 rows={[
@@ -533,7 +653,7 @@ export function HelpPanel() {
             </section>
 
             <section id="faq" className="mt-8">
-              <SectionTitle>14. Dépannage et FAQ</SectionTitle>
+              <SectionTitle>18. Dépannage et FAQ</SectionTitle>
               <Faq
                 q="Mon fichier STEP ne se charge pas"
                 a="Vérifiez l'extension .step/.stp. Les fichiers >50 Mo prennent du temps. Un indicateur de chargement s'affiche."
@@ -566,6 +686,37 @@ export function HelpPanel() {
                 q="Comment changer entre mode jour et mode nuit ?"
                 a="Cliquez l'icône soleil/lune dans la toolbar (à gauche du bouton Aide) pour basculer instantanément. Votre choix est mémorisé pour vos prochaines visites - au tout premier chargement, l'application respecte le réglage clair/sombre de votre système. L'export PDF utilise toujours le mode jour pour les captures, quel que soit le mode actif, puis revient automatiquement à votre mode."
               />
+            </section>
+
+            <section id="install" className="mt-8">
+              <SectionTitle>19. Installation PWA et Desktop</SectionTitle>
+              <SubTitle>Application web installable (PWA)</SubTitle>
+              <List
+                items={[
+                  <>
+                    Sur Chrome/Edge (Android ou ordinateur), un bouton <strong className="text-[var(--text-primary)]">« Installer
+                    l'app »</strong> apparaît en bas à droite - cliquez dessus pour l'ajouter comme application autonome.
+                  </>,
+                  "Sur iPhone/iPad (Safari), ce bouton n'apparaît pas : utilisez Partager → Ajouter à l'écran d'accueil.",
+                  "Une fois installée, l'application fonctionne hors-ligne (fichiers déjà ouverts, interface, assistant IA).",
+                ]}
+              />
+              <SubTitle>Application desktop (Windows)</SubTitle>
+              <List
+                items={[
+                  <>
+                    <strong className="text-[var(--text-primary)]">Setup (installeur)</strong> — installe l'app avec raccourcis
+                    Bureau/menu Démarrer et associe les fichiers .step/.stp/.stl/.pindi pour les ouvrir d'un double-clic
+                  </>,
+                  <>
+                    <strong className="text-[var(--text-primary)]">Portable</strong> — aucune installation, se lance directement
+                  </>,
+                ]}
+              />
+              <Tip>
+                La version desktop n'est pas publiée automatiquement en ligne - demandez le fichier .exe à la personne qui
+                gère le projet, ou générez-le vous-même avec la commande de build Electron.
+              </Tip>
             </section>
 
             <footer className="mt-8 border-t border-[var(--border-light)] pt-4 text-center text-xs text-[var(--text-muted)]">
