@@ -13,7 +13,8 @@
     "deploy": "npm run build && npx gh-pages -d dist",
     "electron:dev": "concurrently -k \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
     "electron:build": "npm run build:electron && electron-builder",
-    "electron:preview": "npm run build:electron && electron . --preview"
+    "electron:preview": "npm run build:electron && electron . --preview",
+    "release": "npm run deploy && npm run electron:build && echo ALL DONE"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.8",
