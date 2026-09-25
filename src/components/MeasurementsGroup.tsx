@@ -82,9 +82,17 @@ function DistanceMeasurement({
 }) {
   const { point1, point2 } = measurement
   const safePoint2 = point2 ?? point1
-  const mid = useMemo(() => point1.clone().add(safePoint2).multiplyScalar(0.5), [point1, safePoint2])
-  const direction = useMemo(() => safePoint2.clone().sub(point1).normalize(), [point1, safePoint2])
-  const delta = useMemo(() => safePoint2.clone().sub(point1), [point1, safePoint2])
+  // The cote line runs between the measured points themselves, unless the
+  // measurement carries its own dimLine (a drawing-style cote pulled outside
+  // the part): then extension lines join each measured point to it.
+  const lineStart = measurement.dimLine?.[0] ?? point1
+  const lineEnd = measurement.dimLine?.[1] ?? safePoint2
+  const mid = useMemo(() => lineStart.clone().add(lineEnd).multiplyScalar(0.5), [lineStart, lineEnd])
+  const direction = useMemo(() => lineEnd.clone().sub(lineStart).normalize(), [lineStart, lineEnd])
+  // ΔX/ΔY/ΔZ along the cote line: for a pulled-out cote the two measured
+  // points can sit on rims of different radii, whose raw difference would
+  // mix in a meaningless radial offset.
+  const delta = useMemo(() => lineEnd.clone().sub(lineStart), [lineStart, lineEnd])
   const arrowSize = markerRadius * 1.8
 
   if (!point2) return null
@@ -99,9 +107,15 @@ function DistanceMeasurement({
         <sphereGeometry args={[markerRadius, 16, 16]} />
         <meshBasicMaterial color={MARKER_COLOR} />
       </mesh>
-      <Line points={[point1, point2]} color={LINE_COLOR} lineWidth={1.5} />
-      <Arrow tip={point1} direction={direction.clone().negate()} size={arrowSize} />
-      <Arrow tip={point2} direction={direction} size={arrowSize} />
+      {measurement.dimLine && (
+        <>
+          <Line points={[point1, lineStart]} color={LINE_COLOR} lineWidth={1} transparent opacity={0.6} />
+          <Line points={[point2, lineEnd]} color={LINE_COLOR} lineWidth={1} transparent opacity={0.6} />
+        </>
+      )}
+      <Line points={[lineStart, lineEnd]} color={LINE_COLOR} lineWidth={1.5} />
+      <Arrow tip={lineStart} direction={direction.clone().negate()} size={arrowSize} />
+      <Arrow tip={lineEnd} direction={direction} size={arrowSize} />
       <Html position={mid} center pointerEvents="none">
         <div className={`${labelClass(isTouch)} text-slate-100`}>
           <p className="font-medium whitespace-nowrap">{formatMm(measurement.distance ?? 0)}</p>

@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { resetPrintState, restorePrintState } from './usePrintStore'
 import * as THREE from 'three'
 import type {
   Annotation,
@@ -19,17 +20,23 @@ import type {
   TimedAnimationMode,
   ViewPreset,
 } from '../types/model'
+import type { ExplodeMode } from '../utils/explodeModes'
 import {
   applyColor,
   applyColorModeToTree,
+  applyGroupRecords,
   applyOpacity,
   applyVisibility,
+  collectMeshes,
   collectNodeIds,
   collectPartNodeIds,
   findNodeById,
   removeNodeById,
+  renameNodeById,
 } from '../utils/componentTree'
+import { getRandomPaletteColors } from '../utils/colorPalette'
 import { buildDimensionReport } from '../utils/dimensioning'
+import { clearCollisionHighlight } from '../utils/collisionFeedback'
 import { deserializeAnnotation, deserializeMeasurement } from '../utils/projectFile'
 import type { MeshEdgeData } from '../utils/edgeAnalysis'
 import { FLUID_TYPES, type FlowFluidType } from '../utils/fluidTypes'
@@ -82,7 +89,20 @@ interface ModelState {
   visibility: Record<string, boolean>
   opacity: Record<string, number>
   customColors: Record<string, string>
+  // Names the user gave to parts/groups (node id -> name), kept beside the tree
+  // (whose nodes carry the live name) so they can be saved in the .pindi file.
+  customNames: Record<string, string>
+  // The random series drawn by "Couleur aléatoire" (shape-group index ->
+  // 0xRRGGBB), or null while the default palette is in use. Kept so it can be
+  // saved in the .pindi file (the colors themselves live on the meshes).
+  paletteOverride: Record<string, number> | null
+  // Node whose row in the tree is currently an inline rename field.
+  renamingNodeId: string | null
   colorMode: ColorMode
+  // Bumped by randomizePaletteColors: the palette lives on the meshes
+  // (userData.paletteColor), not in the store, so the component tree needs
+  // this to know its swatches are stale.
+  paletteVersion: number
   displayMode: DisplayMode
   showGrid: boolean
   isLoading: boolean
@@ -90,6 +110,7 @@ interface ModelState {
   resetView: (() => void) | null
   goToView: ((preset: ViewPreset) => void) | null
   clippingEnabled: boolean
+  clippingPanelOpen: boolean
   clippingAxis: ClippingAxis
   clippingPosition: number
   contextMenu: ContextMenuState | null
@@ -100,6 +121,18 @@ interface ModelState {
   pipetteMode: boolean
   pickedColor: string | null
   measureMode: boolean
+  // What a click does while measureMode is on: 'points' = the Mesure tool
+  // (two clicks, point to point); 'edge' = the Cotes manuelles tool (one
+  // click on an edge dimensions that whole edge, in the "lignes cachées
+  // supprimées" view - see toggleManualDimMode).
+  measureVariant: 'points' | 'edge'
+  // Cotes manuelles only: 'length' = one click gives an edge's length (or a
+  // rim's diameter); 'gap' = two clicks give the gap between two edges (see
+  // resolveGapMeasurement in snapping.ts).
+  manualDimKind: 'length' | 'gap'
+  // Display mode in use before Cotes manuelles switched the view, restored
+  // when it's turned off (see the subscription at the end of this file).
+  manualDimPrevDisplayMode: DisplayMode | null
   measurements: Measurement[]
   measurePendingPoint: THREE.Vector3 | null
   measurePendingSnap: SnapResult | null
@@ -113,6 +146,14 @@ interface ModelState {
   initialTransforms: Record<string, InitialTransform>
   animationsPaused: boolean
   explodeFactor: number
+  explodeMode: ExplodeMode
+  explodeSequential: boolean
+  explodeGuides: boolean
+  explodeDetail: number
+  collisionMode: boolean
+  collisionTransform: 'translate' | 'rotate'
+  collisionSound: boolean
+  collisionContact: string | null
   resetSignal: ResetSignal | null
   timedRunCounter: number
   showAutoDimensions: boolean
@@ -120,6 +161,9 @@ interface ModelState {
   dimensionReport: DimensionReport | null
   dimensionsOpacitySnapshot: Record<string, number> | null
   sourceFileHash: string | null
+  // The CAD file the current model was parsed from, kept so a saved .pindi
+  // can embed it. Null when the model came from the mesh cache (no file).
+  sourceFile: File | null
   projectName: string
   annotationMode: boolean
   annotations: Annotation[]
@@ -192,8 +236,12 @@ interface ModelState {
   setNodeColor: (id: string, color: string) => void
   resetNodeColor: (id: string) => void
   resetAllColors: () => void
+  renameNode: (id: string, name: string) => void
+  setRenamingNodeId: (id: string | null) => void
   setColorMode: (mode: ColorMode) => void
+  randomizePaletteColors: () => void
   setClippingEnabled: (enabled: boolean) => void
+  setClippingPanelOpen: (open: boolean) => void
   setClippingAxis: (axis: ClippingAxis) => void
   setClippingPosition: (position: number) => void
   openContextMenu: (menu: ContextMenuState) => void
@@ -219,6 +267,8 @@ interface ModelState {
   exitPipetteMode: () => void
   setPickedColor: (color: string | null) => void
   toggleMeasureMode: () => void
+  toggleManualDimMode: () => void
+  setManualDimKind: (kind: 'length' | 'gap') => void
   exitMeasureMode: () => void
   addMeasurement: (measurement: Measurement) => void
   removeMeasurement: (id: string) => void
@@ -233,18 +283,35 @@ interface ModelState {
   startPresentation: (nodeId: string, speed: number) => void
   startTimedAnimation: (
     nodeId: string,
-    config: { kind: TimedAnimationKind; axis: 'x' | 'y' | 'z'; mode: TimedAnimationMode; targetValue: number; duration: number },
+    config: {
+      kind: TimedAnimationKind
+      axis: 'x' | 'y' | 'z'
+      mode: TimedAnimationMode
+      targetValue: number
+      duration: number
+      stopOnCollision?: boolean
+    },
   ) => void
   markTimedAnimationFinished: (nodeId: string) => void
   setAnimationsPaused: (paused: boolean) => void
   setExplodeFactor: (factor: number) => void
+  setExplodeMode: (mode: ExplodeMode) => void
+  setExplodeSequential: (sequential: boolean) => void
+  setExplodeGuides: (guides: boolean) => void
+  setExplodeDetail: (detail: number) => void
+  setCollisionMode: (enabled: boolean) => void
+  setCollisionTransform: (mode: 'translate' | 'rotate') => void
+  setCollisionSound: (enabled: boolean) => void
+  setCollisionContact: (contact: string | null) => void
   requestNodeReset: (nodeId: string) => void
   requestResetAll: () => void
   registerInitialTransform: (nodeId: string, position: THREE.Vector3, rotation: THREE.Euler) => void
   toggleAutoDimensions: () => void
   setDimensionTargetNodeId: (nodeId: string | null) => void
   setSourceFileHash: (hash: string | null) => void
+  setSourceFile: (file: File | null) => void
   applyProjectFile: (project: ProjectFile) => void
+  restoreOriginalState: () => void
   setProjectName: (name: string) => void
   toggleAnnotationMode: () => void
   exitAnnotationMode: () => void
@@ -264,7 +331,7 @@ interface ModelState {
   setFlowCircularAxis: (axis: FlowAxis) => void
   setFlowCircularTurns: (turns: number) => void
   nextFlowPassage: () => void
-  useFlowPassage: (reversed: boolean) => void
+  applyFlowPassage: (reversed: boolean) => void
   dismissFlowPassages: () => void
   setPendingAnnotation: (pending: { point: THREE.Vector3; x: number; y: number } | null) => void
   addAnnotation: (text: string) => void
@@ -281,6 +348,9 @@ interface ModelState {
   pindiSourcePrompt: { sourceFile: string; resolve: (file: File | null) => void } | null
   setPindiSourcePrompt: (prompt: { sourceFile: string; resolve: (file: File | null) => void } | null) => void
   hasUnsavedChanges: boolean
+  // What the model looked like right after opening - the target of
+  // restoreOriginalState().
+  openingSnapshot: { tree: ComponentNode; displayMode: DisplayMode; colorMode: ColorMode } | null
   setHasUnsavedChanges: (value: boolean) => void
   showCloseConfirm: boolean
   setShowCloseConfirm: (value: boolean) => void
@@ -314,6 +384,8 @@ function buildDisassembleSequence(tree: ComponentNode, mode: 'demonte' | 'remont
       axis: step.axis,
       distance: mode === 'remonte' ? -step.distance : step.distance,
       duration: step.duration,
+      stopOnCollision: false,
+      openEnded: false,
     })
   }
   return plan
@@ -328,7 +400,11 @@ export const useModelStore = create<ModelState>((set, get) => ({
   visibility: {},
   opacity: {},
   customColors: {},
+  customNames: {},
+  paletteOverride: null,
+  renamingNodeId: null,
   colorMode: 'standard',
+  paletteVersion: 0,
   displayMode: 'shaded-edges',
   showGrid: false,
   isLoading: false,
@@ -336,6 +412,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
   resetView: null,
   goToView: null,
   clippingEnabled: false,
+  clippingPanelOpen: false,
   clippingAxis: 'x',
   clippingPosition: 0,
   contextMenu: null,
@@ -346,6 +423,9 @@ export const useModelStore = create<ModelState>((set, get) => ({
   pipetteMode: false,
   pickedColor: null,
   measureMode: false,
+  measureVariant: 'points',
+  manualDimKind: 'length',
+  manualDimPrevDisplayMode: null,
   measurements: [],
   measurePendingPoint: null,
   measurePendingSnap: null,
@@ -355,6 +435,14 @@ export const useModelStore = create<ModelState>((set, get) => ({
   initialTransforms: {},
   animationsPaused: false,
   explodeFactor: 0,
+  explodeMode: 'radial',
+  explodeSequential: false,
+  explodeGuides: false,
+  explodeDetail: 0.5,
+  collisionMode: false,
+  collisionTransform: 'translate',
+  collisionSound: true,
+  collisionContact: null,
   resetSignal: null,
   timedRunCounter: 0,
   showAutoDimensions: false,
@@ -362,6 +450,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
   dimensionReport: null,
   dimensionsOpacitySnapshot: null,
   sourceFileHash: null,
+  sourceFile: null,
   projectName: '',
   annotationMode: false,
   annotations: [],
@@ -392,15 +481,22 @@ export const useModelStore = create<ModelState>((set, get) => ({
   theme: getInitialTheme(),
   pindiSourcePrompt: null,
   hasUnsavedChanges: false,
+  openingSnapshot: null,
   showCloseConfirm: false,
 
   setModel: (object, fileName, triangleCount, boundingBox, tree, edgeData) => {
+    // Un autre modèle : l'ancien aperçu / réglages d'impression n'ont plus de sens.
+    resetPrintState()
     const visibility: Record<string, boolean> = {}
     const opacity: Record<string, number> = {}
     for (const id of collectNodeIds(tree)) {
       visibility[id] = true
       opacity[id] = 1
     }
+
+    // Opening a file over an already-open model must not inherit its red
+    // collision highlight (materials of the old meshes are simply dropped).
+    clearCollisionHighlight()
 
     // Newly loaded parts start out gray (see the loaders); bring them in
     // line with whichever color mode the viewer is currently set to.
@@ -415,8 +511,14 @@ export const useModelStore = create<ModelState>((set, get) => ({
       visibility,
       opacity,
       customColors: {},
+      customNames: {},
+      paletteOverride: null,
+      renamingNodeId: null,
       error: null,
       clippingEnabled: false,
+      clippingPanelOpen: false,
+      collisionMode: false,
+      collisionContact: null,
       clippingAxis: 'x',
       clippingPosition: (boundingBox.min.x + boundingBox.max.x) / 2,
       contextMenu: null,
@@ -440,6 +542,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
       dimensionReport: null,
       dimensionsOpacitySnapshot: null,
       sourceFileHash: null,
+      sourceFile: null,
       projectName: '',
       annotationMode: false,
       annotations: [],
@@ -454,10 +557,12 @@ export const useModelStore = create<ModelState>((set, get) => ({
       flowPassageCandidates: [],
       flowPassageIndex: 0,
       hasUnsavedChanges: false,
+      openingSnapshot: { tree, displayMode: get().displayMode, colorMode: get().colorMode },
     })
   },
 
-  clearModel: () =>
+  clearModel: () => {
+    resetPrintState()
     set({
       object: null,
       fileName: null,
@@ -467,6 +572,9 @@ export const useModelStore = create<ModelState>((set, get) => ({
       visibility: {},
       opacity: {},
       customColors: {},
+      customNames: {},
+      paletteOverride: null,
+      renamingNodeId: null,
       resetView: null,
       captureFourViews: null,
       getCameraState: null,
@@ -474,6 +582,9 @@ export const useModelStore = create<ModelState>((set, get) => ({
       capturePng: null,
       getPartScreenPositions: null,
       clippingEnabled: false,
+      clippingPanelOpen: false,
+      collisionMode: false,
+      collisionContact: null,
       contextMenu: null,
       selectedNodeIds: [],
       selectionAnchorId: null,
@@ -496,6 +607,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
       dimensionReport: null,
       dimensionsOpacitySnapshot: null,
       sourceFileHash: null,
+      sourceFile: null,
       projectName: '',
       annotationMode: false,
       annotations: [],
@@ -510,8 +622,10 @@ export const useModelStore = create<ModelState>((set, get) => ({
       flowPassageCandidates: [],
       flowPassageIndex: 0,
       hasUnsavedChanges: false,
+      openingSnapshot: null,
       showCloseConfirm: false,
-    }),
+    })
+  },
 
   setDisplayMode: (displayMode) => set({ displayMode }),
   setShowGrid: (showGrid) => set({ showGrid }),
@@ -590,6 +704,26 @@ export const useModelStore = create<ModelState>((set, get) => ({
     set({ customColors: {}, hasUnsavedChanges: true })
   },
 
+  // Renames a part or group. The tree is replaced (not mutated) so the snapshot
+  // taken when the model opened keeps the original names; an empty/blank name
+  // is ignored rather than leaving a nameless row. Everything that lists parts
+  // (tree, selection info, dimension sheet, AI commands) reads node.name, so
+  // the new name shows up everywhere at once.
+  renameNode: (id, name) => {
+    const { tree, customNames } = get()
+    const trimmed = name.trim()
+    if (!tree || trimmed === '') return
+    const current = findNodeById(tree, id)
+    if (!current || current.name === trimmed) return
+    set({
+      tree: renameNodeById(tree, id, trimmed),
+      customNames: { ...customNames, [id]: trimmed },
+      hasUnsavedChanges: true,
+    })
+  },
+
+  setRenamingNodeId: (renamingNodeId) => set({ renamingNodeId }),
+
   setColorMode: (colorMode) => {
     const { tree, customColors, theme } = get()
     set({ colorMode })
@@ -597,7 +731,34 @@ export const useModelStore = create<ModelState>((set, get) => ({
     applyColorModeToTree(tree, colorMode, customColors, theme)
   },
 
+  // "Couleur aléatoire": draws a new random series and gives it to the shape
+  // groups (identical parts keep sharing one color, as with the default
+  // palette). Only meaningful in "Couleurs par pièce" mode; colors the user
+  // picked by hand (customColors) are left alone, as everywhere else.
+  randomizePaletteColors: () => {
+    const { tree, colorMode, customColors, theme } = get()
+    if (!tree || colorMode !== 'palette') return
+    const meshes = collectMeshes(tree)
+    const groupIds = Array.from(
+      new Set(meshes.map((m) => m.userData.shapeGroup).filter((g): g is number => typeof g === 'number')),
+    )
+    if (groupIds.length === 0) return
+    const colors = getRandomPaletteColors(groupIds.length)
+    const byGroup = new Map(groupIds.map((g, i) => [g, colors[i]]))
+    for (const mesh of meshes) {
+      const group = mesh.userData.shapeGroup
+      if (typeof group === 'number') mesh.userData.paletteColor = byGroup.get(group)
+    }
+    applyColorModeToTree(tree, colorMode, customColors, theme)
+    set((state) => ({
+      paletteVersion: state.paletteVersion + 1,
+      paletteOverride: Object.fromEntries(byGroup),
+      hasUnsavedChanges: true,
+    }))
+  },
+
   setClippingEnabled: (clippingEnabled) => set({ clippingEnabled, hasUnsavedChanges: true }),
+  setClippingPanelOpen: (clippingPanelOpen) => set({ clippingPanelOpen }),
   setClippingAxis: (clippingAxis) => set({ clippingAxis, hasUnsavedChanges: true }),
   setClippingPosition: (clippingPosition) => set({ clippingPosition, hasUnsavedChanges: true }),
 
@@ -620,6 +781,86 @@ export const useModelStore = create<ModelState>((set, get) => ({
         : [...state.selectedNodeIds, id],
       selectionAnchorId: id,
     })),
+
+  // "État d'origine": undoes EVERY modification and puts the model back the
+  // way it was when it opened - part positions/rotations, explosion,
+  // animations, colors, opacity, visibility, groups, section plane,
+  // measurements, annotations, dimension sheet, flow path, collision tool,
+  // selection and camera.
+  restoreOriginalState: () => {
+    const { openingSnapshot, boundingBox, theme, resetView } = get()
+    if (!openingSnapshot || !boundingBox) return
+    const { tree, displayMode, colorMode } = openingSnapshot
+
+    clearCollisionHighlight()
+
+    // Physical part of it: pivots back to their assembled pose (handled where
+    // the pivots live, see AnimationController) plus animation/explode state.
+    get().requestResetAll()
+
+    // Appearance lives on the meshes themselves, so it is reset there and
+    // the store maps are rebuilt from the same tree.
+    applyVisibility(tree, true)
+    applyOpacity(tree, 1)
+    applyColor(tree, null, colorMode, theme)
+    applyColorModeToTree(tree, colorMode, {}, theme)
+
+    const visibility: Record<string, boolean> = {}
+    const opacity: Record<string, number> = {}
+    for (const id of collectNodeIds(tree)) {
+      visibility[id] = true
+      opacity[id] = 1
+    }
+
+    set({
+      tree,
+      visibility,
+      opacity,
+      customColors: {},
+      customNames: {},
+      paletteOverride: null,
+      renamingNodeId: null,
+      displayMode,
+      colorMode,
+      contextMenu: null,
+      selectedNodeIds: [],
+      selectionAnchorId: null,
+      boxSelectMode: false,
+      showGroupNamePrompt: false,
+      pipetteMode: false,
+      pickedColor: null,
+      measureMode: false,
+      measurements: [],
+      measurePendingPoint: null,
+      measurePendingSnap: null,
+      annotationMode: false,
+      annotations: [],
+      pendingAnnotation: null,
+      clippingEnabled: false,
+      clippingPanelOpen: false,
+      clippingAxis: 'x',
+      clippingPosition: (boundingBox.min.x + boundingBox.max.x) / 2,
+      initialTransforms: {},
+      animationsPaused: false,
+      explodeFactor: 0,
+      collisionMode: false,
+      collisionContact: null,
+      showAutoDimensions: false,
+      dimensionTargetNodeId: null,
+      dimensionReport: null,
+      dimensionsOpacitySnapshot: null,
+      flowPickMode: false,
+      flowPath: [],
+      flowEditPointIndex: null,
+      flowPlaying: false,
+      flowOpacitySnapshot: null,
+      flowPassageCandidates: [],
+      flowPassageIndex: 0,
+      hasUnsavedChanges: false,
+    })
+
+    resetView?.()
+  },
 
   // Shift+click: selects every node between the last anchor and `id`, in
   // the tree's own (parent-blind) depth-first order - the same order
@@ -812,9 +1053,11 @@ export const useModelStore = create<ModelState>((set, get) => ({
   exitPipetteMode: () => set({ pipetteMode: false, pickedColor: null }),
   setPickedColor: (pickedColor) => set({ pickedColor }),
 
+  // From Cotes manuelles, Mesure switches tools instead of turning off.
   toggleMeasureMode: () =>
     set((state) => ({
-      measureMode: !state.measureMode,
+      measureMode: state.measureVariant === 'edge' ? true : !state.measureMode,
+      measureVariant: 'points',
       measurePendingPoint: null,
       measurePendingSnap: null,
       pipetteMode: false,
@@ -822,6 +1065,27 @@ export const useModelStore = create<ModelState>((set, get) => ({
       boxSelectMode: false,
       flowPickMode: false,
     })),
+  toggleManualDimMode: () =>
+    set((state) => {
+      if (state.measureMode && state.measureVariant === 'edge') {
+        return { measureMode: false, measurePendingPoint: null, measurePendingSnap: null }
+      }
+      return {
+        measureMode: true,
+        measureVariant: 'edge',
+        measurePendingPoint: null,
+        measurePendingSnap: null,
+        pipetteMode: false,
+        pickedColor: null,
+        boxSelectMode: false,
+        flowPickMode: false,
+        annotationMode: false,
+        pendingAnnotation: null,
+        manualDimPrevDisplayMode: state.displayMode,
+        displayMode: 'hidden-lines-removed',
+      }
+    }),
+  setManualDimKind: (manualDimKind) => set({ manualDimKind, measurePendingPoint: null, measurePendingSnap: null }),
   exitMeasureMode: () =>
     set({ measureMode: false, measurePendingPoint: null, measurePendingSnap: null, measureTouchScreenPos: null }),
   addMeasurement: (measurement) =>
@@ -934,6 +1198,14 @@ export const useModelStore = create<ModelState>((set, get) => ({
 
   setAnimationsPaused: (animationsPaused) => set({ animationsPaused }),
   setExplodeFactor: (explodeFactor) => set({ explodeFactor, hasUnsavedChanges: true }),
+  setExplodeMode: (explodeMode) => set({ explodeMode }),
+  setExplodeSequential: (explodeSequential) => set({ explodeSequential }),
+  setExplodeGuides: (explodeGuides) => set({ explodeGuides }),
+  setExplodeDetail: (explodeDetail) => set({ explodeDetail }),
+  setCollisionMode: (collisionMode) => set({ collisionMode, collisionContact: null }),
+  setCollisionTransform: (collisionTransform) => set({ collisionTransform }),
+  setCollisionSound: (collisionSound) => set({ collisionSound }),
+  setCollisionContact: (collisionContact) => set({ collisionContact }),
 
   requestNodeReset: (nodeId) =>
     set((state) => {
@@ -1020,6 +1292,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
   },
 
   setSourceFileHash: (sourceFileHash) => set({ sourceFileHash }),
+  setSourceFile: (sourceFile) => set({ sourceFile }),
   setProjectName: (projectName) => set({ projectName }),
 
   toggleAnnotationMode: () =>
@@ -1139,7 +1412,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
   // path in one click, converting from the mesh's own local space (where
   // findFlowPassages found them) to world space via that mesh's current
   // transform.
-  useFlowPassage: (reversed) => {
+  applyFlowPassage: (reversed) => {
     const { tree, flowPassageCandidates, flowPassageIndex } = get()
     const passage = flowPassageCandidates[flowPassageIndex]
     if (!tree || !passage) return
@@ -1177,16 +1450,28 @@ export const useModelStore = create<ModelState>((set, get) => ({
     const state = get()
     if (!state.tree) return
 
+    // 1. Structure first: rebuild the groups (they change the tree), then the
+    // names people gave to parts/groups - everything below finds nodes by id, so
+    // it has to look them up in this rebuilt tree, not the freshly loaded one.
+    let workingTree = applyGroupRecords(state.tree, project.groups ?? [])
+    const appliedNames: Record<string, string> = {}
+    for (const [nodeId, name] of Object.entries(project.names ?? {})) {
+      if (!findNodeById(workingTree, nodeId)) continue
+      workingTree = renameNodeById(workingTree, nodeId, name)
+      appliedNames[nodeId] = name
+    }
+    if (workingTree !== state.tree) set({ tree: workingTree, customNames: appliedNames })
+
     for (const [nodeId, color] of Object.entries(project.colors)) {
-      const node = findNodeById(state.tree, nodeId)
+      const node = findNodeById(workingTree, nodeId)
       if (node) applyColor(node, color, state.colorMode, state.theme)
     }
     for (const [nodeId, visible] of Object.entries(project.visibility)) {
-      const node = findNodeById(state.tree, nodeId)
+      const node = findNodeById(workingTree, nodeId)
       if (node) applyVisibility(node, visible)
     }
     for (const [nodeId, value] of Object.entries(project.opacity)) {
-      const node = findNodeById(state.tree, nodeId)
+      const node = findNodeById(workingTree, nodeId)
       if (node) applyOpacity(node, value)
     }
 
@@ -1206,6 +1491,27 @@ export const useModelStore = create<ModelState>((set, get) => ({
       projectName: project.projectName,
       hasUnsavedChanges: false,
     })
+
+    // "Couleurs par pièce" and the random series that was on screen: put the
+    // saved series back on the shape groups first (the colors live on the
+    // meshes), then switch the mode, which repaints everything that doesn't
+    // carry a hand-picked color.
+    if (project.paletteColors) {
+      for (const mesh of collectMeshes(workingTree)) {
+        const group = mesh.userData.shapeGroup
+        const color = typeof group === 'number' ? project.paletteColors[String(group)] : undefined
+        if (color !== undefined) mesh.userData.paletteColor = color
+      }
+      set({ paletteOverride: project.paletteColors, paletteVersion: get().paletteVersion + 1 })
+    }
+    if (project.colorMode) get().setColorMode(project.colorMode)
+    // Sélection puis module Impression 3D, comme à l'enregistrement : l'emboîtement
+    // et l'aperçu éclaté dépendent des pièces sélectionnées.
+    const currentTree = get().tree
+    const selection = (project.selection ?? []).filter((id) => currentTree && findNodeById(currentTree, id))
+    if (selection.length > 0) set({ selectedNodeIds: selection, selectionAnchorId: selection[0] })
+    restorePrintState(project.print)
+    set({ hasUnsavedChanges: false })
 
     state.applyCameraState?.(project.camera)
   },
@@ -1513,8 +1819,12 @@ export const useModelStore = create<ModelState>((set, get) => ({
           mode: 'once',
           targetValue: intent.angle,
           duration: intent.duration,
+          stopOnCollision: intent.stopOnCollision,
         })
-        pushMessage('assistant', `Rotation de ${intent.angle}° lancée pour ${label}.`)
+        pushMessage(
+          'assistant',
+          `Rotation de ${intent.angle}° lancée pour ${label}${intent.stopOnCollision ? ' (arrêt à la collision)' : ''}.`,
+        )
         return
       }
       case 'translate': {
@@ -1523,21 +1833,32 @@ export const useModelStore = create<ModelState>((set, get) => ({
           pushMessage('assistant', `Aucune pièce ne correspond à ${label}.`)
           return
         }
+        // Open-ended "until collision" move: travel far enough to cross the
+        // whole model; the collision, not the distance, ends it.
+        const box = get().boundingBox
+        const reach = box ? box.getSize(new THREE.Vector3()).length() : 1000
+        const distance = intent.openEnded ? Math.sign(intent.distance || 1) * reach : intent.distance
         get().startTimedAnimation(encodeSelectionKey(ids), {
           kind: 'translation',
           axis: intent.axis,
           mode: 'once',
-          targetValue: intent.distance,
+          targetValue: distance,
           duration: intent.duration,
+          stopOnCollision: intent.stopOnCollision,
         })
-        pushMessage('assistant', `Translation de ${intent.distance}mm lancée pour ${label}.`)
+        pushMessage(
+          'assistant',
+          intent.openEnded
+            ? `${label} avance jusqu'à la première collision.`
+            : `Translation de ${distance}mm lancée pour ${label}${intent.stopOnCollision ? ' (arrêt à la collision)' : ''}.`,
+        )
         return
       }
       case 'unknown':
       default:
         pushMessage(
           'assistant',
-          "Je n'ai pas compris. Essaie par exemple : « Éclate toutes les pièces », « Fais tourner l'arbre sur lui-même », « Monte les flasques de 50mm », « Rends le tube transparent », « Met la flasque_haut en rouge », « Même couleur que le tube », « Trace le parcours de l'eau dans l'assemblage », « L'eau entre par le manchon, traverse le tube et sort par l'arbre », ou « Arrête tout et remets en position initiale ».",
+          "Je n'ai pas compris. Essaie par exemple : « Éclate toutes les pièces », « Fais tourner l'arbre sur lui-même », « Monte les flasques de 50mm », « Déplace le tube vers la droite jusqu'à la collision », « Rends le tube transparent », « Met la flasque_haut en rouge », « Même couleur que le tube », « Trace le parcours de l'eau dans l'assemblage », « L'eau entre par le manchon, traverse le tube et sort par l'arbre », ou « Arrête tout et remets en position initiale ».",
         )
     }
     }
@@ -1572,3 +1893,17 @@ export const useModelStore = create<ModelState>((set, get) => ({
     set({ aiSequenceActive: false, aiSequenceProgress: null })
   },
 }))
+
+// Cotes manuelles changes the view to "lignes cachées supprimées" so every
+// edge reads clearly. However the tool ends - its own button, Échap, another
+// tool, a new file resetting measureMode - put the previous view back,
+// unless the user has meanwhile picked another display mode themselves.
+useModelStore.subscribe((state, prev) => {
+  const wasOn = prev.measureMode && prev.measureVariant === 'edge'
+  const isOn = state.measureMode && state.measureVariant === 'edge'
+  if (!wasOn || isOn || state.manualDimPrevDisplayMode === null) return
+  useModelStore.setState({
+    manualDimPrevDisplayMode: null,
+    ...(state.displayMode === 'hidden-lines-removed' ? { displayMode: state.manualDimPrevDisplayMode } : {}),
+  })
+})

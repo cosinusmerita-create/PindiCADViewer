@@ -1,11 +1,23 @@
-import { useMemo, type ReactNode } from 'react'
+import { useMemo, useRef, type ReactNode } from 'react'
 import * as THREE from 'three'
 import { Html, Line } from '@react-three/drei'
+import { useFrame } from '@react-three/fiber'
 import { useModelStore } from '../hooks/useModelState'
 import { THEME_COLORS } from '../utils/themeColors'
+import type { AxisLevel } from '../types/model'
 
 const PITCH_COLOR = '#ffaa00'
-const MAX_RENDERED_HEIGHT_LINES = 4
+// Beyond this many face-to-face steps along one axis the chain would be an
+// unreadable comb of labels: only the overall cote is drawn then (the full
+// breakdown stays in the Fiche technique panel).
+const MAX_CHAIN_STEPS = 12
+const MIN_STEP_MM = 0.01
+// A cote seen (nearly) end-on - the "l" depth cote in a front view -
+// collapses to a stub with its label sitting on top of the others: hidden
+// when it runs within ~30° of the line of sight, or is too short on screen,
+// and shown again as soon as the view turns.
+const MIN_SCREEN_LENGTH_PX = 18
+const MAX_VIEW_ALIGNMENT = 0.85
 
 function formatMm(value: number) {
   return `${value.toFixed(2)} mm`
@@ -89,16 +101,32 @@ function DimensionLine({
 }) {
   const direction = useMemo(() => end.clone().sub(start).normalize(), [start, end])
   const mid = useMemo(() => start.clone().add(end).multiplyScalar(0.5), [start, end])
+  const groupRef = useRef<THREE.Group>(null)
+  const labelRef = useRef<HTMLDivElement>(null)
+  const ndcA = useMemo(() => new THREE.Vector3(), [])
+  const ndcB = useMemo(() => new THREE.Vector3(), [])
+  const viewDir = useMemo(() => new THREE.Vector3(), [])
+
+  useFrame(({ camera, size }) => {
+    ndcA.copy(start).project(camera)
+    ndcB.copy(end).project(camera)
+    const px = Math.hypot(((ndcA.x - ndcB.x) * size.width) / 2, ((ndcA.y - ndcB.y) * size.height) / 2)
+    camera.getWorldDirection(viewDir)
+    const visible = px >= MIN_SCREEN_LENGTH_PX && Math.abs(viewDir.dot(direction)) <= MAX_VIEW_ALIGNMENT
+    if (groupRef.current) groupRef.current.visible = visible
+    if (labelRef.current) labelRef.current.style.display = visible ? '' : 'none'
+  })
 
   return (
-    <group>
-      {extFromA && <Line points={[extFromA, start]} color={color} lineWidth={1} transparent opacity={0.35} />}
-      {extFromB && <Line points={[extFromB, end]} color={color} lineWidth={1} transparent opacity={0.35} />}
+    <group ref={groupRef}>
+      {extFromA && <Line points={[extFromA, start]} color={color} lineWidth={1} transparent opacity={0.5} />}
+      {extFromB && <Line points={[extFromB, end]} color={color} lineWidth={1} transparent opacity={0.5} />}
       <Line points={[start, end]} color={color} lineWidth={1.5} />
       <Arrow tip={start} direction={direction.clone().negate()} size={arrowSize} color={color} />
       <Arrow tip={end} direction={direction} size={arrowSize} color={color} />
       <Html position={mid} center pointerEvents="none">
         <div
+          ref={labelRef}
           className="whitespace-nowrap rounded border border-white/10 bg-[#16162a]/90 px-1.5 py-0.5 text-[11px] font-medium shadow"
           style={{ color }}
         >
@@ -109,42 +137,52 @@ function DimensionLine({
   )
 }
 
+// A diameter: the circle itself, and (when labelled) a leader from a point
+// ON the rim straight out to the label, so the value visibly belongs to that
+// circle. Extra instances of a hole pattern are drawn without a label - the
+// first one carries "4× ⌀ ..." for the whole group.
 function DiameterCallout({
   center,
   axis,
   radius,
   label,
-  offsetDir,
+  dir,
+  labelGap,
   color,
 }: {
   center: THREE.Vector3
   axis: THREE.Vector3
   radius: number
-  label: string
-  offsetDir: THREE.Vector3
+  label?: string
+  dir: THREE.Vector3
+  labelGap: number
   color: string
 }) {
   const points = useMemo(() => makeCirclePoints(center, axis, radius), [center, axis, radius])
-  const labelPos = useMemo(() => center.clone().addScaledVector(offsetDir, radius * 1.6), [center, offsetDir, radius])
+  const rimPoint = useMemo(() => center.clone().addScaledVector(dir, radius), [center, dir, radius])
+  const labelPos = useMemo(() => center.clone().addScaledVector(dir, radius + labelGap), [center, dir, radius, labelGap])
   return (
     <group>
       <Line points={points} color={color} lineWidth={2} />
-      <Line points={[center, labelPos]} color={color} lineWidth={1} transparent opacity={0.5} />
-      <Html position={labelPos} center pointerEvents="none">
-        <div className="whitespace-nowrap rounded border border-white/10 bg-[#16162a]/90 px-1.5 py-0.5 text-[11px] font-medium shadow" style={{ color }}>
-          {label}
-        </div>
-      </Html>
+      {label && (
+        <>
+          <Line points={[rimPoint, labelPos]} color={color} lineWidth={1} transparent opacity={0.6} />
+          <Html position={labelPos} center pointerEvents="none">
+            <div className="whitespace-nowrap rounded border border-white/10 bg-[#16162a]/90 px-1.5 py-0.5 text-[11px] font-medium shadow" style={{ color }}>
+              {label}
+            </div>
+          </Html>
+        </>
+      )}
     </group>
   )
 }
 
 // Auto-generated overview cotes for the currently active dimension report:
-// an overall bounding-box wireframe + L/W/H cotes, every detected diameter
-// group highlighted and labelled ("N× ⌀X mm"), the pitch circle if one was
-// found, and up to a handful of the part's characteristic height levels -
-// each successive tier of similar cotes nudged progressively further out
-// so they don't land on top of each other.
+// the bounding-box wireframe, a chain of face-to-face cotes plus the overall
+// L/H/l cote along each axis (see the layout notes below), every detected
+// diameter group highlighted and labelled ("N× ⌀X mm") and the pitch circle
+// if one was found.
 export function AutoDimensions() {
   const showAutoDimensions = useModelStore((s) => s.showAutoDimensions)
   const report = useModelStore((s) => s.dimensionReport)
@@ -155,43 +193,108 @@ export function AutoDimensions() {
   const linearColor = THEME_COLORS[theme].dimensionLinear
   const diameterColor = THEME_COLORS[theme].dimensionDiameter
 
-  const { boundingBoxMin: min, boundingBoxMax: max, size, diameterGroups, largestGroupIndex, centralBoreGroupIndex, pitchCircle, heights } = report
+  const { boundingBoxMin: min, boundingBoxMax: max, size, diameterGroups, largestGroupIndex, centralBoreGroupIndex, pitchCircle } = report
 
   const spanRef = Math.max(size.x, size.y, size.z, 1)
-  const offsetX = Math.max(size.x, spanRef * 0.2) * 0.09
-  const offsetY = Math.max(size.y, spanRef * 0.2) * 0.09
+  // Distance between successive rows of cotes (chain row, then overall row).
+  const step = spanRef * 0.17
   const arrowSize = spanRef * 0.012
 
   const boxPoints = boxEdgeSegments(min, max)
 
-  // Longueur (X): pulled below-front. Largeur (Z, depth in this app's Y-up
-  // scene): pulled below-front too but shifted right, so it doesn't sit on
-  // top of the length cote. Hauteur (Y): pulled out to the right.
-  const lengthY = min.y - offsetY
-  const lengthStart = new THREE.Vector3(min.x, lengthY, min.z)
-  const lengthEnd = new THREE.Vector3(max.x, lengthY, min.z)
-
-  const widthX = max.x + offsetX
-  const widthStart = new THREE.Vector3(widthX, lengthY, min.z)
-  const widthEnd = new THREE.Vector3(widthX, lengthY, max.z)
-
-  const heightX = max.x + offsetX * 2.2
-  const heightStart = new THREE.Vector3(heightX, min.y, min.z)
-  const heightEnd = new THREE.Vector3(heightX, max.y, min.z)
-
-  const heightEntries = heights.filter((h) => h.label !== 'Total').slice(0, MAX_RENDERED_HEIGHT_LINES)
-  const cumulativeLevels: number[] = [min.y]
-  for (const h of heightEntries) cumulativeLevels.push(cumulativeLevels[cumulativeLevels.length - 1] + h.value)
-
-  const usedDirections = new Set<string>()
-  function diameterOffsetDirection(axis: THREE.Vector3): THREE.Vector3 {
-    const helper = Math.abs(axis.y) < 0.99 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0)
-    const base = new THREE.Vector3().crossVectors(helper, axis).normalize()
-    const key = `${axis.x.toFixed(2)},${axis.y.toFixed(2)},${axis.z.toFixed(2)}`
-    const count = usedDirections.has(key) ? 1 : 0
-    usedDirections.add(key)
-    return count === 0 ? base : base.clone().negate()
+  // Linear cotes, drawn the way a drawing sheet shows them: along each world
+  // axis, a CHAIN row cotes every step between consecutive planar faces
+  // (wall, opening, wall...), and a row further out gives the overall size.
+  // Every extension line starts on the real face it measures (its extent
+  // nearest the cote), so each value visibly belongs to its faces.
+  //  - X (L): under the part, in the front plane (z = max.z).
+  //  - Y (H): right of the part, in the front plane.
+  //  - Z (l): under the part's right edge.
+  // Chains with a single step (nothing between the two outer faces) are the
+  // overall cote itself and aren't repeated.
+  const front = max.z
+  type Stop = { pos: number; anchor: THREE.Vector3 }
+  function stops(levels: AxisLevel[], lo: number, hi: number, anchorOf: (pos: number, level: AxisLevel | null) => THREE.Vector3): Stop[] {
+    const result: Stop[] = levels.map((level) => ({ pos: level.pos, anchor: anchorOf(level.pos, level) }))
+    if (result.length === 0 || result[0].pos - lo > MIN_STEP_MM) result.unshift({ pos: lo, anchor: anchorOf(lo, null) })
+    if (hi - result[result.length - 1].pos > MIN_STEP_MM) result.push({ pos: hi, anchor: anchorOf(hi, null) })
+    return result.filter((stop, i) => i === 0 || stop.pos - result[i - 1].pos > MIN_STEP_MM)
   }
+  const hasChain = (list: Stop[]) => list.length > 2 && list.length - 1 <= MAX_CHAIN_STEPS
+
+  const xStops = stops(report.axisLevels.x, min.x, max.x, (pos, level) => new THREE.Vector3(pos, level ? level.min.y : min.y, front))
+  const yStops = stops(report.axisLevels.y, min.y, max.y, (pos, level) => new THREE.Vector3(level ? level.max.x : max.x, pos, front))
+  const zStops = stops(report.axisLevels.z, min.z, max.z, (pos, level) =>
+    level ? new THREE.Vector3(level.max.x, level.min.y, pos) : new THREE.Vector3(max.x, min.y, pos),
+  )
+
+  const xChainY = min.y - step
+  const xTotalY = min.y - step * (hasChain(xStops) ? 2 : 1)
+  const yChainX = max.x + step
+  const yTotalX = max.x + step * (hasChain(yStops) ? 2 : 1)
+  const zChainY = min.y - step
+  const zTotalY = min.y - step * (hasChain(zStops) ? 2 : 1)
+
+  const linear: ReactNode[] = []
+  function chain(key: string, list: Stop[], at: (pos: number) => THREE.Vector3) {
+    if (!hasChain(list)) return
+    for (let i = 1; i < list.length; i++) {
+      linear.push(
+        <DimensionLine
+          key={`${key}-${i}`}
+          start={at(list[i - 1].pos)}
+          end={at(list[i].pos)}
+          extFromA={list[i - 1].anchor}
+          extFromB={list[i].anchor}
+          label={formatMm(list[i].pos - list[i - 1].pos)}
+          color={linearColor}
+          arrowSize={arrowSize}
+        />,
+      )
+    }
+  }
+  chain('cx', xStops, (x) => new THREE.Vector3(x, xChainY, front))
+  chain('cy', yStops, (y) => new THREE.Vector3(yChainX, y, front))
+  chain('cz', zStops, (z) => new THREE.Vector3(max.x, zChainY, z))
+
+  // Diameter labels. The old layout pushed every label out from its circle's
+  // center along the same direction, so on a turned part (all circles
+  // concentric) they piled up in one column over the middle of the part.
+  // Now:
+  //  - circles on the part's own axis (bores, bosses, flange) and the pitch
+  //    circle each get their own angle around that axis, spread evenly,
+  //    largest first at the front-right;
+  //  - an off-axis hole puts its label radially outward, away from the part.
+  // Each leader starts on the rim and the label sits just outside it.
+  const labelGap = spanRef * 0.12
+  const partCenter = min.clone().add(max).multiplyScalar(0.5)
+  const planeBasis = (axis: THREE.Vector3) => {
+    const helper = Math.abs(axis.y) < 0.99 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0)
+    const u = new THREE.Vector3().crossVectors(helper, axis).normalize()
+    const v = new THREE.Vector3().crossVectors(axis, u).normalize()
+    return { u, v }
+  }
+  const inPlaneOffset = (point: THREE.Vector3, axis: THREE.Vector3) => {
+    const rel = new THREE.Vector3().subVectors(point, partCenter)
+    return rel.addScaledVector(axis, -rel.dot(axis))
+  }
+  const isCentral = (center: THREE.Vector3, axis: THREE.Vector3, radius: number) =>
+    inPlaneOffset(center, axis).length() < Math.max(radius * 0.2, spanRef * 0.02)
+
+  type Spread = { key: string; axis: THREE.Vector3; radius: number }
+  const spread: Spread[] = []
+  diameterGroups.forEach((group, groupIndex) => {
+    if (group.count === 1 && isCentral(group.center, group.axis, group.radius))
+      spread.push({ key: `d-${groupIndex}`, axis: group.axis, radius: group.radius })
+  })
+  if (pitchCircle) spread.push({ key: 'pcd', axis: pitchCircle.axis, radius: pitchCircle.diameter / 2 })
+  spread.sort((a, b) => b.radius - a.radius)
+  const spreadDir = new Map<string, THREE.Vector3>()
+  spread.forEach((item, i) => {
+    const angle = (3 * Math.PI) / 4 + (i * 2 * Math.PI) / spread.length
+    const { u, v } = planeBasis(item.axis)
+    spreadDir.set(item.key, u.clone().multiplyScalar(Math.cos(angle)).addScaledVector(v, Math.sin(angle)))
+  })
 
   const elements: ReactNode[] = []
 
@@ -200,16 +303,21 @@ export function AutoDimensions() {
     const isCentralBore = groupIndex === centralBoreGroupIndex
     const tag = isLargest ? ' (ext. max)' : isCentralBore ? ' (alésage central)' : ''
     const label = group.count > 1 ? `${group.count}× ⌀ ${formatMm(group.radius * 2)}${tag}` : `⌀ ${formatMm(group.radius * 2)}${tag}`
-    const offsetDir = diameterOffsetDirection(group.axis)
     group.instanceCenters.forEach((center, i) => {
+      let dir = spreadDir.get(`d-${groupIndex}`)
+      if (!dir) {
+        const outward = inPlaneOffset(center, group.axis)
+        dir = outward.lengthSq() > 1e-9 ? outward.normalize() : planeBasis(group.axis).u
+      }
       elements.push(
         <DiameterCallout
           key={`d-${groupIndex}-${i}`}
           center={center}
           axis={group.axis}
           radius={group.radius}
-          label={i === 0 ? label : `⌀ ${formatMm(group.radius * 2)}`}
-          offsetDir={offsetDir}
+          label={i === 0 ? label : undefined}
+          dir={dir}
+          labelGap={labelGap}
           color={diameterColor}
         />,
       )
@@ -218,15 +326,16 @@ export function AutoDimensions() {
 
   if (pitchCircle) {
     const pcdPoints = makeCirclePoints(pitchCircle.center, pitchCircle.axis, pitchCircle.diameter / 2)
-    const helper = Math.abs(pitchCircle.axis.y) < 0.99 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0)
-    const dir = new THREE.Vector3().crossVectors(helper, pitchCircle.axis).normalize()
-    const labelPos = pitchCircle.center.clone().addScaledVector(dir, (pitchCircle.diameter / 2) * 1.15)
+    const dir = spreadDir.get('pcd') ?? planeBasis(pitchCircle.axis).u
+    const rimPoint = pitchCircle.center.clone().addScaledVector(dir, pitchCircle.diameter / 2)
+    const labelPos = pitchCircle.center.clone().addScaledVector(dir, pitchCircle.diameter / 2 + labelGap)
     const label = pitchCircle.angleStep
       ? `Entraxe ⌀ ${formatMm(pitchCircle.diameter)} · tous les ${formatDeg(pitchCircle.angleStep)}`
       : `Entraxe ⌀ ${formatMm(pitchCircle.diameter)}`
     elements.push(
       <group key="pcd">
         <Line points={pcdPoints} color={PITCH_COLOR} lineWidth={1.5} dashed dashSize={pitchCircle.diameter * 0.02} gapSize={pitchCircle.diameter * 0.015} />
+        <Line points={[rimPoint, labelPos]} color={PITCH_COLOR} lineWidth={1} transparent opacity={0.6} />
         <Html position={labelPos} center pointerEvents="none">
           <div className="whitespace-nowrap rounded border border-white/10 bg-[#16162a]/90 px-1.5 py-0.5 text-[11px] font-medium shadow" style={{ color: PITCH_COLOR }}>
             {label}
@@ -241,50 +350,34 @@ export function AutoDimensions() {
       <Line points={boxPoints} segments color="#66aaff" lineWidth={1} dashed dashSize={spanRef * 0.01} gapSize={spanRef * 0.006} transparent opacity={0.6} />
 
       <DimensionLine
-        start={lengthStart}
-        end={lengthEnd}
-        extFromA={new THREE.Vector3(min.x, min.y, min.z)}
-        extFromB={new THREE.Vector3(max.x, min.y, min.z)}
+        start={new THREE.Vector3(min.x, xTotalY, front)}
+        end={new THREE.Vector3(max.x, xTotalY, front)}
+        extFromA={new THREE.Vector3(min.x, min.y, front)}
+        extFromB={new THREE.Vector3(max.x, min.y, front)}
         label={`L ${formatMm(size.x)}`}
         color={linearColor}
         arrowSize={arrowSize}
       />
       <DimensionLine
-        start={widthStart}
-        end={widthEnd}
+        start={new THREE.Vector3(yTotalX, min.y, front)}
+        end={new THREE.Vector3(yTotalX, max.y, front)}
+        extFromA={new THREE.Vector3(max.x, min.y, front)}
+        extFromB={new THREE.Vector3(max.x, max.y, front)}
+        label={`H ${formatMm(size.y)}`}
+        color={linearColor}
+        arrowSize={arrowSize}
+      />
+      <DimensionLine
+        start={new THREE.Vector3(max.x, zTotalY, min.z)}
+        end={new THREE.Vector3(max.x, zTotalY, max.z)}
         extFromA={new THREE.Vector3(max.x, min.y, min.z)}
         extFromB={new THREE.Vector3(max.x, min.y, max.z)}
         label={`l ${formatMm(size.z)}`}
         color={linearColor}
         arrowSize={arrowSize}
       />
-      <DimensionLine
-        start={heightStart}
-        end={heightEnd}
-        extFromA={new THREE.Vector3(max.x, min.y, min.z)}
-        extFromB={new THREE.Vector3(max.x, max.y, min.z)}
-        label={`H ${formatMm(size.y)}`}
-        color={linearColor}
-        arrowSize={arrowSize}
-      />
 
-      {heightEntries.map((h, i) => {
-        const x = heightX + offsetX * (i + 1.6)
-        const y0 = cumulativeLevels[i]
-        const y1 = cumulativeLevels[i + 1]
-        return (
-          <DimensionLine
-            key={`h-${i}`}
-            start={new THREE.Vector3(x, y0, min.z)}
-            end={new THREE.Vector3(x, y1, min.z)}
-            extFromA={new THREE.Vector3(heightX, y0, min.z)}
-            extFromB={new THREE.Vector3(heightX, y1, min.z)}
-            label={`${h.label} ${formatMm(h.value)}`}
-            color={linearColor}
-            arrowSize={arrowSize}
-          />
-        )
-      })}
+      {linear}
 
       {elements}
     </group>

@@ -20,18 +20,28 @@ import { applyDisplayMode } from '../utils/displayMode'
 import { VIEW_DEFINITIONS, getViewDistance } from '../utils/cameraViews'
 import { animateCameraTo } from '../utils/animateCamera'
 import { collectMeshes, collectPartNodeIds, findNodeById, getPrimaryMaterial } from '../utils/componentTree'
+import { buildPartGroups } from '../utils/explodeModes'
 import { activeClippingPlanes } from '../utils/clippingPlanes'
+import { PrintCutPlanes } from './PrintCutPlanes'
+import { usePrintStore } from '../hooks/usePrintStore'
+import { PrintPiecesPreview } from './PrintPiecesPreview'
 import { hideAllSectionCaps, isClipCapMesh, updateAllSectionCaps } from '../utils/clippingCap'
 import {
   applyContinuousRotation,
   applyExplode,
   applyTimed,
+  fillGuideLines,
   getOrCreatePivot,
   resetPivot,
   type PivotEntry,
+  type TimedCollisionHooks,
   type TimedRuntime,
 } from '../utils/animationPivot'
-import { findFlowCircle, findSnap, resolveDistanceMeasurement, type PointerKind, type SnapResult } from '../utils/snapping'
+import { baselineContacts, buildStatics } from '../utils/collision'
+import { clearCollisionHighlight, playCollisionBeep, setCollisionHighlight } from '../utils/collisionFeedback'
+import { useToastStore } from '../hooks/useToastStore'
+import { findEdgeForDimension, findFlowCircle, findSnap, resolveDistanceMeasurement, resolveGapMeasurement, type PointerKind, type SnapResult } from '../utils/snapping'
+import { CollisionMover } from './CollisionMover'
 import { MeasurementsGroup } from './MeasurementsGroup'
 import { SnapIndicator } from './SnapIndicator'
 import { AutoDimensions } from './AutoDimensions'
@@ -332,17 +342,64 @@ function AnimationController() {
   const animations = useModelStore((s) => s.animations)
   const animationsPaused = useModelStore((s) => s.animationsPaused)
   const explodeFactor = useModelStore((s) => s.explodeFactor)
+  const explodeMode = useModelStore((s) => s.explodeMode)
+  const explodeSequential = useModelStore((s) => s.explodeSequential)
+  const explodeGuides = useModelStore((s) => s.explodeGuides)
+  const explodeDetail = useModelStore((s) => s.explodeDetail)
   const resetSignal = useModelStore((s) => s.resetSignal)
   const markTimedAnimationFinished = useModelStore((s) => s.markTimedAnimationFinished)
   const registerInitialTransform = useModelStore((s) => s.registerInitialTransform)
 
-  const pivotRegistry = useRef(new Map<string, PivotEntry>())
+  // Stable Map shared with CollisionMover, which moves parts through the same
+  // pivots (so resets and animations stay consistent).
+  const [registry] = useState(() => new Map<string, PivotEntry>())
+  const pivotRegistry = useRef(registry)
   const timedRuntime = useRef(new Map<string, TimedRuntime>())
   const registeredInitial = useRef(new Set<string>())
   const explodeAppliedRef = useRef(0)
   const lastResetRequestId = useRef(0)
 
   const partNodeIds = useMemo(() => (tree ? collectPartNodeIds(tree) : []), [tree])
+  const partGroups = useMemo(() => (tree ? buildPartGroups(tree) : new Map<string, string>()), [tree])
+
+  // Dashed segments from each part's assembled position to where the
+  // explosion moved it. Parented to `object` so it shares the pivots' local
+  // coordinate space, and made unpickable so it never steals clicks/snaps.
+  const guideLines = useMemo(() => {
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(partNodeIds.length * 6), 3))
+    const material = new THREE.LineDashedMaterial({
+      color: 0x38bdf8,
+      dashSize: 1,
+      gapSize: 0.6,
+      transparent: true,
+      opacity: 0.8,
+      depthTest: false,
+    })
+    const lines = new THREE.LineSegments(geometry, material)
+    lines.frustumCulled = false
+    lines.renderOrder = 999
+    lines.visible = false
+    lines.raycast = () => {}
+    return lines
+  }, [partNodeIds.length])
+
+  useEffect(() => {
+    if (!object) return
+    object.add(guideLines)
+    return () => {
+      object.remove(guideLines)
+      guideLines.geometry.dispose()
+      ;(guideLines.material as THREE.Material).dispose()
+    }
+  }, [object, guideLines])
+
+  // Switching layout (or sequential on/off) restarts the explosion from the
+  // assembled state so the parts visibly travel to their new positions
+  // instead of snapping.
+  useEffect(() => {
+    explodeAppliedRef.current = 0
+  }, [explodeMode, explodeSequential])
   const assemblyCenter = useMemo(
     () => (boundingBox ? boundingBox.getCenter(new THREE.Vector3()) : null),
     [boundingBox],
@@ -371,6 +428,27 @@ function AnimationController() {
     }
   }, [resetSignal])
 
+  // Collision support for timed animations started with "stop on collision"
+  // (see applyTimed): what stays put, and what to do on the first contact.
+  const collisionHooks = useMemo<TimedCollisionHooks | undefined>(() => {
+    if (!object || !tree) return undefined
+    return {
+      createContext: (entry) => {
+        object.updateMatrixWorld(true)
+        const statics = buildStatics(collectMeshes(tree), new Set(entry.meshes))
+        return { statics, ignore: baselineContacts(entry.meshes, statics) }
+      },
+      onContact: (contact) => {
+        const nameOf = (mesh: THREE.Mesh) =>
+          findNodeById(tree, mesh.userData.nodeId as string)?.name ?? 'pièce'
+        setCollisionHighlight(contact)
+        window.setTimeout(clearCollisionHighlight, 1500)
+        if (useModelStore.getState().collisionSound) playCollisionBeep()
+        useToastStore.getState().pushToast(`Collision : ${nameOf(contact[0])} ↔ ${nameOf(contact[1])} - mouvement arrêté`)
+      },
+    }
+  }, [object, tree])
+
   useFrame((_, delta) => {
     if (!object || !tree) return
 
@@ -388,7 +466,9 @@ function AnimationController() {
         }
 
         if (anim.continuousRotation.active) applyContinuousRotation(entry, anim.continuousRotation, delta)
-        if (anim.timed) applyTimed(entry, anim.timed, timedRuntime.current, nodeId, delta, markTimedAnimationFinished)
+        if (anim.timed) {
+          applyTimed(entry, anim.timed, timedRuntime.current, nodeId, delta, markTimedAnimationFinished, collisionHooks)
+        }
       }
     }
 
@@ -398,11 +478,40 @@ function AnimationController() {
       if (Math.abs(explodeAppliedRef.current - explodeFactor) < 0.0005) {
         explodeAppliedRef.current = explodeFactor
       }
-      applyExplode(pivotRegistry.current, object, tree, partNodeIds, assemblyCenter, explodeAppliedRef.current)
+      const options = { mode: explodeMode, sequential: explodeSequential, detail: explodeDetail }
+      applyExplode(
+        pivotRegistry.current,
+        object,
+        tree,
+        partNodeIds,
+        assemblyCenter,
+        explodeAppliedRef.current,
+        partGroups,
+        options,
+      )
+
+      if (explodeGuides && explodeAppliedRef.current > 0.001) {
+        const attr = guideLines.geometry.getAttribute('position') as THREE.BufferAttribute
+        const count = fillGuideLines(attr.array as Float32Array, pivotRegistry.current, partNodeIds)
+        attr.needsUpdate = true
+        guideLines.geometry.setDrawRange(0, count)
+        // Dash size follows the model's scale so guides read the same for a
+        // 20 mm part and a 2 m assembly.
+        const size = boundingBox ? boundingBox.getSize(new THREE.Vector3()).length() : 100
+        const mat = guideLines.material as THREE.LineDashedMaterial
+        mat.dashSize = size * 0.01
+        mat.gapSize = size * 0.006
+        guideLines.computeLineDistances()
+        guideLines.visible = true
+      } else {
+        guideLines.visible = false
+      }
+    } else {
+      guideLines.visible = false
     }
   })
 
-  return null
+  return <CollisionMover registry={registry} />
 }
 
 function Scene() {
@@ -431,6 +540,8 @@ function Scene() {
   const setNodeColor = useModelStore((s) => s.setNodeColor)
   const setColorForSelection = useModelStore((s) => s.setColorForSelection)
   const measureMode = useModelStore((s) => s.measureMode)
+  const measureVariant = useModelStore((s) => s.measureVariant)
+  const manualDimKind = useModelStore((s) => s.manualDimKind)
   const addMeasurement = useModelStore((s) => s.addMeasurement)
   const pendingPoint = useModelStore((s) => s.measurePendingPoint)
   const setPendingPoint = useModelStore((s) => s.setMeasurePendingPoint)
@@ -759,7 +870,8 @@ function Scene() {
     const nodeId = mesh.userData.nodeId as string | undefined
     const data = nodeId ? edgeData.get(nodeId) : undefined
     if (!data) return null
-    return findSnap(
+    // Cotes manuelles: whole edges only (see findEdgeForDimension).
+    return (measureVariant === 'edge' ? findEdgeForDimension : findSnap)(
       mesh,
       data,
       hit.point,
@@ -774,6 +886,10 @@ function Scene() {
   }
 
   const handlePointerUp = (e: ThreeEvent<PointerEvent>) => {
+    // Aperçu éclaté d'Impression 3D : les pièces d'origine sont masquées mais restent
+    // touchables par le raycaster (visible=false ne l'exclut pas) et passeraient devant
+    // les tronçons ; on ignore leurs clics pour ne pas vider la sélection.
+    if (usePrintStore.getState().previewOn) return
     if (e.nativeEvent.pointerType === 'touch') setMeasureTouchScreenPos(null)
     if (e.nativeEvent.button !== 0) return
     // Box-select drags are handled entirely by the DOM overlay outside the
@@ -858,6 +974,82 @@ function Scene() {
       const pointerKind: PointerKind = e.nativeEvent.pointerType === 'touch' ? 'touch' : 'mouse'
       const snap = resolveSnap(hit, e.nativeEvent.offsetX, e.nativeEvent.offsetY, pointerKind)
       const point = (snap?.point ?? hit.point).clone()
+
+      // Cotes manuelles: one click = one cote, no pending point. A rim or
+      // bore gives its diameter; a straight edge its full length, stored as
+      // an ordinary distance measurement (same list, panel and .pindi save
+      // as the Mesure tool's).
+      // "Écart entre 2 arêtes": the first click only picks an edge (or a
+      // rim); the second one adds the gap between the two.
+      if (measureVariant === 'edge' && manualDimKind === 'gap') {
+        const picked = snap?.type === 'edge' || snap?.type === 'circle'
+        if (!picked) {
+          useToastStore.getState().pushToast('Cliquez sur une arête (ou un bord de trou)')
+          return
+        }
+        if (!pendingPoint) {
+          setPendingPoint(point)
+          setPendingSnap(snap)
+          return
+        }
+        const gap = resolveGapMeasurement(pendingPoint, pendingSnap, point, snap)
+        if (gap.distance < 1e-6) {
+          useToastStore.getState().pushToast('Ces deux arêtes se touchent : choisissez deux arêtes séparées')
+          return
+        }
+        addMeasurement({
+          id: crypto.randomUUID(),
+          type: 'distance',
+          point1: gap.a,
+          point2: gap.b,
+          distance: gap.distance,
+          radius: null,
+          center: null,
+          axis: null,
+          startAngle: null,
+          angularSpan: null,
+          approx: false,
+          dimLine: gap.dimLine,
+        })
+        setPendingPoint(null)
+        setPendingSnap(null)
+        return
+      }
+
+      if (measureVariant === 'edge') {
+        if (snap?.type === 'circle' && snap.circle) {
+          addMeasurement({
+            id: crypto.randomUUID(),
+            type: 'diameter',
+            point1: point,
+            point2: null,
+            distance: null,
+            radius: snap.circle.radius,
+            center: snap.circle.center,
+            axis: snap.circle.normal,
+            startAngle: snap.circle.startAngle,
+            angularSpan: snap.circle.angularSpan,
+            approx: false,
+          })
+        } else if (snap?.segmentStart && snap.segmentEnd && snap.length !== null) {
+          addMeasurement({
+            id: crypto.randomUUID(),
+            type: 'distance',
+            point1: snap.segmentStart.clone(),
+            point2: snap.segmentEnd.clone(),
+            distance: snap.length,
+            radius: null,
+            center: null,
+            axis: null,
+            startAngle: null,
+            angularSpan: null,
+            approx: false,
+          })
+        } else {
+          useToastStore.getState().pushToast('Cliquez sur une arête pour la coter')
+        }
+        return
+      }
 
       if (!pendingPoint) {
         // A circle/arc is meaningful on its own, so the first click on one
@@ -1013,14 +1205,17 @@ function Scene() {
           position={[0, gridConfig.y, 0]}
           args={[gridConfig.size, gridConfig.size]}
           cellSize={gridConfig.cell}
-          cellThickness={0.5}
+          cellThickness={0.7}
           cellColor={THEME_COLORS[theme].gridCell}
           sectionSize={gridConfig.section}
-          sectionThickness={1}
+          sectionThickness={1.2}
           sectionColor={THEME_COLORS[theme].gridSection}
-          fadeDistance={gridConfig.size * 1.5}
-          fadeStrength={1}
-          infiniteGrid
+          // A finite plane with a hard edge and no distance fade: the old
+          // infinite grid dissolved into the background, which read as blurry
+          // next to the model. fadeDistance is only kept huge (not 0, which
+          // divides by zero in drei's shader) with fadeStrength 0 = no fade.
+          fadeDistance={gridConfig.size * 1000}
+          fadeStrength={0}
         />
       )}
       <OrbitControls
@@ -1045,6 +1240,8 @@ function Scene() {
         <GizmoViewport axisColors={['#ef4444', '#22c55e', '#3b82f6']} labelColor="black" />
       </GizmoHelper>
       <ClippingController />
+      <PrintCutPlanes />
+      <PrintPiecesPreview />
       <AnimationController />
       {selectedMeshes.length > 0 && (
         <EffectComposer autoClear={false}>
@@ -1160,7 +1357,10 @@ export function Viewer3D() {
         gl={{ antialias: true, localClippingEnabled: true, alpha: true, preserveDrawingBuffer: true }}
         shadows
         onPointerMissed={() => {
-          if (!crosshair) clearSelection()
+          // Pendant l'aperçu éclaté d'Impression 3D, un clic dans le vide ne doit pas
+          // vider la sélection : l'emboîtement en dépend (pièces sélectionnées).
+          if (usePrintStore.getState().previewOn) usePrintStore.getState().set({ previewSelected: null })
+          else if (!crosshair) clearSelection()
         }}
       >
         <Suspense fallback={null}>

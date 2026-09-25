@@ -1,6 +1,9 @@
 import * as THREE from 'three'
 import type { ComponentNode, LoadResult } from '../types/model'
-import { createStandardMaterial, getPaletteColor } from './colorPalette'
+import { STEP_QUALITY_PARAMS, useStepQualityStore } from './stepQuality'
+import { createStandardMaterial } from './colorPalette'
+import { readMeshCache, writeMeshCache } from './meshCache'
+import { identifyParts } from './partIdentity'
 
 interface WorkerMeshResult {
   name: string
@@ -15,6 +18,12 @@ interface WorkerTreeNode {
   name: string
   meshes: number[]
   children: WorkerTreeNode[]
+}
+
+// What the worker produces, and what the persistent cache stores.
+export interface ParsedStep {
+  meshes: WorkerMeshResult[]
+  root: WorkerTreeNode | null
 }
 
 interface WorkerResponse {
@@ -60,7 +69,56 @@ function buildTree(
   return { id, name, mesh: null, children: [...meshLeaves, ...childNodes] }
 }
 
-export function loadStepFile(file: File): Promise<LoadResult> {
+// Turns parsed worker data (fresh from the worker or restored from the cache)
+// into the Three.js scene objects and component tree.
+function buildLoadResult(data: ParsedStep, fileName: string): LoadResult {
+  const group = new THREE.Group()
+  const meshObjects: THREE.Mesh[] = []
+  let triangleCount = 0
+
+  data.meshes.forEach((meshData) => {
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.BufferAttribute(meshData.position, 3))
+    if (meshData.normal) {
+      geometry.setAttribute('normal', new THREE.BufferAttribute(meshData.normal, 3))
+    } else {
+      geometry.computeVertexNormals()
+    }
+    geometry.setIndex(new THREE.BufferAttribute(meshData.index, 1))
+
+    triangleCount += meshData.index.length / 3
+
+    const material = createStandardMaterial()
+    const mesh = new THREE.Mesh(geometry, material)
+    mesh.name = meshData.name
+    mesh.userData.primaryMaterial = material
+    mesh.userData.brepFaces = meshData.brepFaces
+    group.add(mesh)
+    meshObjects.push(mesh)
+  })
+  identifyParts(meshObjects)
+
+  let idCounter = 0
+  const nextId = () => `n${idCounter++}`
+
+  const tree = data.root
+    ? buildTree(data.root, meshObjects, fileName, nextId)
+    : ({
+        id: nextId(),
+        name: fileName,
+        mesh: meshObjects.length === 1 ? meshObjects[0] : null,
+        children: meshObjects.length === 1 ? [] : meshObjects.map((mesh, i) => ({
+          id: `n${i + 1}`,
+          name: mesh.name,
+          mesh,
+          children: [],
+        })),
+      } satisfies ComponentNode)
+
+  return { object: group, triangleCount, tree }
+}
+
+function parseInWorker(file: File): Promise<ParsedStep> {
   return new Promise((resolve, reject) => {
     file
       .arrayBuffer()
@@ -76,53 +134,7 @@ export function loadStepFile(file: File): Promise<LoadResult> {
             reject(new Error(data.error || 'Échec du parsing du fichier STEP.'))
             return
           }
-
-          const group = new THREE.Group()
-          const meshObjects: THREE.Mesh[] = []
-          let triangleCount = 0
-
-          data.meshes.forEach((meshData, i) => {
-            const geometry = new THREE.BufferGeometry()
-            geometry.setAttribute('position', new THREE.BufferAttribute(meshData.position, 3))
-            if (meshData.normal) {
-              geometry.setAttribute('normal', new THREE.BufferAttribute(meshData.normal, 3))
-            } else {
-              geometry.computeVertexNormals()
-            }
-            geometry.setIndex(new THREE.BufferAttribute(meshData.index, 1))
-
-            triangleCount += meshData.index.length / 3
-
-            const material = createStandardMaterial()
-            const mesh = new THREE.Mesh(geometry, material)
-            mesh.name = meshData.name || `Pièce ${i + 1}`
-            mesh.userData.primaryMaterial = material
-            mesh.userData.brepFaces = meshData.brepFaces
-            if (data.meshes!.length > 1) {
-              mesh.userData.paletteColor = getPaletteColor(i).getHex()
-            }
-            group.add(mesh)
-            meshObjects.push(mesh)
-          })
-
-          let idCounter = 0
-          const nextId = () => `n${idCounter++}`
-
-          const tree = data.root
-            ? buildTree(data.root, meshObjects, file.name, nextId)
-            : ({
-                id: nextId(),
-                name: file.name,
-                mesh: meshObjects.length === 1 ? meshObjects[0] : null,
-                children: meshObjects.length === 1 ? [] : meshObjects.map((mesh, i) => ({
-                  id: `n${i + 1}`,
-                  name: mesh.name,
-                  mesh,
-                  children: [],
-                })),
-              } satisfies ComponentNode)
-
-          resolve({ object: group, triangleCount, tree })
+          resolve({ meshes: data.meshes, root: data.root ?? null })
         }
 
         const handleError = (err: ErrorEvent) => {
@@ -133,8 +145,48 @@ export function loadStepFile(file: File): Promise<LoadResult> {
 
         w.addEventListener('message', handleMessage)
         w.addEventListener('error', handleError)
-        w.postMessage({ fileBuffer: buffer }, [buffer])
+        // Resolved against the page URL so it's correct for both the absolute
+        // web base and the relative Electron base (see step.worker.js).
+        const occtBaseUrl = new URL(`${import.meta.env.BASE_URL}occt-import-js/`, window.location.href).href
+        const meshParams = STEP_QUALITY_PARAMS[useStepQualityStore.getState().quality]
+        w.postMessage({ fileBuffer: buffer, occtBaseUrl, meshParams }, [buffer])
       })
       .catch(reject)
   })
+}
+
+// `fileHash` (the content hash the loader already computes) keys the persistent
+// cache together with the meshing quality: reopening the same file at the same
+// quality skips the slow OpenCascade parse entirely.
+export async function loadStepFile(file: File, fileHash?: string): Promise<LoadResult> {
+  const quality = useStepQualityStore.getState().quality
+  const cacheKey = fileHash ? `${fileHash}:${quality}` : null
+
+  if (cacheKey) {
+    const cached = await readMeshCache<ParsedStep>(cacheKey)
+    if (cached) return { ...buildLoadResult(cached, file.name), fromCache: true }
+  }
+
+  const parsed = await parseInWorker(file)
+  // Stored in the background: the model shows up without waiting for the write.
+  if (cacheKey) {
+    let bytes = 0
+    for (const m of parsed.meshes) bytes += m.position.byteLength + (m.normal?.byteLength ?? 0) + m.index.byteLength
+    void writeMeshCache(cacheKey, file.name, bytes, parsed)
+  }
+  return buildLoadResult(parsed, file.name)
+}
+
+// Reopens a model from the persistent cache using only the file's content hash
+// - no source file needed. Used to open a .pindi project whose source file is
+// not embedded but was opened on this computer before. Tries the current
+// quality first, then the others.
+export async function loadCachedStep(fileHash: string, fileName: string): Promise<LoadResult | null> {
+  const current = useStepQualityStore.getState().quality
+  const qualities = [current, ...(['standard', 'fine', 'precise'] as const).filter((q) => q !== current)]
+  for (const quality of qualities) {
+    const cached = await readMeshCache<ParsedStep>(`${fileHash}:${quality}`)
+    if (cached) return { ...buildLoadResult(cached, fileName), fromCache: true }
+  }
+  return null
 }

@@ -83,6 +83,32 @@ function pointInCircleDisk(
   return inPlaneDistSq <= radius * radius
 }
 
+// The real rim circle (B-Rep edge loop) of a cylindrical surface patch,
+// nearest the point along the axis: same axis, same radius (within 3 %),
+// center on the patch's axis line. A patch is only a fit to the tessellated
+// wall - its radius a hair small (R37.21 for a R37.25 boss) and its "ends"
+// placed from the fitted extent, not the true rims - so whenever the wall
+// has a real rim, that exact circle is what should be reported.
+type SurfacePatch = MeshEdgeData['surfacePatches']['patches'][number]
+
+function exactRimForPatch(circles: DetectedCircle[], patch: SurfacePatch, localPoint: THREE.Vector3): DetectedCircle | null {
+  let exact: DetectedCircle | null = null
+  let exactDist = Infinity
+  for (const circle of circles) {
+    if (Math.abs(circle.normal.dot(patch.axis)) < 0.99) continue
+    if (Math.abs(circle.radius - patch.radius) > Math.max(patch.radius * 0.03, 0.2)) continue
+    const rel = new THREE.Vector3().subVectors(circle.center, patch.center)
+    const offAxis = rel.clone().addScaledVector(patch.axis, -rel.dot(patch.axis)).length()
+    if (offAxis > Math.max(patch.radius * 0.05, 0.5)) continue
+    const dist = Math.abs(new THREE.Vector3().subVectors(localPoint, circle.center).dot(patch.axis))
+    if (dist < exactDist) {
+      exact = circle
+      exactDist = dist
+    }
+  }
+  return exact
+}
+
 // Finds the nearest snap-worthy feature to the cursor, measured in screen
 // pixels so the snap distance stays consistent regardless of zoom. Priority:
 // hole/boss rim circle > vertex > midpoint > plain edge point > bare curved
@@ -145,9 +171,13 @@ export function findSnap(
   let bestCircle: DetectedCircle | null = null
   let bestCircleDist = Infinity
   for (const circle of edgeData.circles) {
-    if (circle.center.distanceTo(localPoint) > searchRadius * 3) continue
+    // Prefilter on the distance to the RIM, not to the center: a rim point
+    // sits a whole radius away from its center, so a center-distance
+    // cutoff silently skipped every circle wider than the cutoff itself -
+    // on a 92 mm flange, the Ø46 bore and Ø74.5 boss rims could never be
+    // snapped, even with the cursor right on them.
     const closest = closestPointOnCircle(localPoint, circle)
-    if (!closest) continue
+    if (!closest || closest.distanceTo(localPoint) > searchRadius * 3) continue
     const dist = screenDist(closest)
     if (dist < circleThreshold && dist < bestCircleDist) {
       bestCircle = circle
@@ -227,6 +257,11 @@ export function findSnap(
     const patchIndex = edgeData.surfacePatches.facePatch[faceIndex]
     if (patchIndex !== undefined && patchIndex >= 0) {
       const patch = edgeData.surfacePatches.patches[patchIndex]
+      const exact = exactRimForPatch(edgeData.circles, patch, localPoint)
+      if (exact) {
+        const snapPoint = closestPointOnCircle(localPoint, exact) ?? exact.center
+        return circleSnapResult(exact.center, exact.radius, exact.normal, 0, Math.PI * 2, snapPoint)
+      }
       // `patch.center` sits at the axial midpoint of the whole cylindrical
       // wall (a bore/boss's "center of gravity"), which is never a real
       // point on the part - a rim/diameter measurement always belongs at
@@ -256,7 +291,11 @@ export function findSnap(
   for (const patch of edgeData.surfacePatches.patches) {
     if (!isFullCircle(patch.angularSpan)) continue
     if (!pointInCircleDisk(localPoint, patch.center, patch.axis, patch.radius, planeTolerance)) continue
-    if (!bestDisk || patch.radius < bestDisk.radius) bestDisk = { center: patch.center, radius: patch.radius, normal: patch.axis }
+    // A patch's radius is a fit to the tessellated wall, a touch smaller
+    // than the true rim (R37.21 for a R37.25 boss): it must not beat the
+    // exact edge-loop circle of the same wall on that hair's difference -
+    // only a genuinely smaller circle (> 2 %) wins.
+    if (!bestDisk || patch.radius < bestDisk.radius * 0.98) bestDisk = { center: patch.center, radius: patch.radius, normal: patch.axis }
   }
   if (bestDisk) {
     const snapPoint = closestPointOnCircle(localPoint, bestDisk) ?? bestDisk.center
@@ -264,6 +303,167 @@ export function findSnap(
   }
 
   return null
+}
+
+// "Cotes manuelles": one click on an edge = one cote of that WHOLE edge.
+// findSnap() above is built for point picking - it prefers a vertex over
+// the edge it ends, and only ever reports the single tessellation segment
+// under the cursor, so a straight edge an STL (or a meshed STEP face) split
+// into several collinear pieces would be dimensioned piece by piece. This
+// variant keeps findSnap()'s circle handling (a rim/bore still gives its
+// diameter), then looks for the nearest edge only, ignoring vertices and
+// midpoints, and extends it across every collinear segment chained to it
+// end to end - the real edge from corner to corner.
+const MANUAL_EDGE_PIXEL_THRESHOLD = 6
+const COLLINEAR_DOT = 0.9999
+
+// Endpoint -> segments touching it, per edge set (built once, on first use).
+const segmentAdjacency = new WeakMap<EdgeSegment[], Map<string, EdgeSegment[]>>()
+
+function endpointKey(v: THREE.Vector3): string {
+  const s = 1e5
+  return `${Math.round(v.x * s)}_${Math.round(v.y * s)}_${Math.round(v.z * s)}`
+}
+
+function adjacencyFor(segments: EdgeSegment[]): Map<string, EdgeSegment[]> {
+  let map = segmentAdjacency.get(segments)
+  if (!map) {
+    map = new Map()
+    for (const seg of segments) {
+      for (const end of [seg.a, seg.b]) {
+        const key = endpointKey(end)
+        const list = map.get(key)
+        if (list) list.push(seg)
+        else map.set(key, [seg])
+      }
+    }
+    segmentAdjacency.set(segments, map)
+  }
+  return map
+}
+
+// Walks from `from` along `dir` through collinear neighbours, returning the
+// far end of the chain.
+function extendCollinear(
+  seg: EdgeSegment,
+  from: THREE.Vector3,
+  dir: THREE.Vector3,
+  adjacency: Map<string, EdgeSegment[]>,
+): THREE.Vector3 {
+  const visited = new Set<EdgeSegment>([seg])
+  let end = from
+  for (;;) {
+    const next = (adjacency.get(endpointKey(end)) ?? []).find((s) => {
+      if (visited.has(s)) return false
+      const d = new THREE.Vector3().subVectors(s.b, s.a)
+      return d.lengthSq() > 1e-18 && Math.abs(d.normalize().dot(dir)) > COLLINEAR_DOT
+    })
+    if (!next) return end
+    visited.add(next)
+    end = endpointKey(next.a) === endpointKey(end) ? next.b : next.a
+  }
+}
+
+export function findEdgeForDimension(
+  mesh: THREE.Mesh,
+  edgeData: MeshEdgeData,
+  hitPointWorld: THREE.Vector3,
+  faceIndex: number | undefined,
+  camera: THREE.Camera,
+  cursorX: number,
+  cursorY: number,
+  canvasWidth: number,
+  canvasHeight: number,
+  pointerKind: PointerKind = 'mouse',
+): SnapResult | null {
+  const localPoint = mesh.worldToLocal(hitPointWorld.clone())
+  const toWorld = (p: THREE.Vector3) => p.clone().applyMatrix4(mesh.matrixWorld)
+  const worldScale = mesh.getWorldScale(new THREE.Vector3()).x || 1
+  const isTouch = pointerKind === 'touch'
+  const threshold = isTouch ? EDGE_TOUCH_THRESHOLD : MANUAL_EDGE_PIXEL_THRESHOLD
+  const circleThreshold = isTouch ? CIRCLE_TOUCH_THRESHOLD : MANUAL_EDGE_PIXEL_THRESHOLD
+  const screenDist = (localP: THREE.Vector3) => {
+    const projected = projectToScreen(toWorld(localP), camera, canvasWidth, canvasHeight)
+    return projected ? Math.hypot(projected.x - cursorX, projected.y - cursorY) : Infinity
+  }
+  // An edge on the far side of the part can project right under the cursor
+  // too, but it's hidden (the view is "lignes cachées supprimées"), so it
+  // must not be picked: only keep edges that are also close to the clicked
+  // surface point in 3D - within a few times the world size of the pixel
+  // threshold at that depth.
+  const hitNdc = hitPointWorld.clone().project(camera)
+  const offsetNdc = hitNdc.clone()
+  offsetNdc.x += (2 * Math.max(threshold, circleThreshold)) / canvasWidth
+  const pixelWorld = offsetNdc.unproject(camera).distanceTo(hitPointWorld)
+  const maxDepthGap = (pixelWorld * 3) / worldScale
+  const circleResult = (circle: DetectedCircle, point: THREE.Vector3): SnapResult => ({
+    type: 'circle',
+    point: toWorld(point),
+    segmentStart: null,
+    segmentEnd: null,
+    length: null,
+    circle: {
+      center: toWorld(circle.center),
+      radius: circle.radius * worldScale,
+      normal: circle.normal.clone().transformDirection(mesh.matrixWorld),
+      startAngle: 0,
+      angularSpan: Math.PI * 2,
+    },
+  })
+
+  // 1. A real rim (B-Rep edge-loop circle) under the cursor: its exact
+  //    diameter. Checked before straight edges, whose candidates include
+  //    the rim's own tessellation chords.
+  let bestCircle: { circle: DetectedCircle; point: THREE.Vector3; dist: number } | null = null
+  for (const circle of edgeData.circles) {
+    const closest = closestPointOnCircle(localPoint, circle)
+    if (!closest || closest.distanceTo(localPoint) > maxDepthGap) continue
+    const dist = screenDist(closest)
+    if (dist < circleThreshold && (!bestCircle || dist < bestCircle.dist)) bestCircle = { circle, point: closest, dist }
+  }
+  if (bestCircle) return circleResult(bestCircle.circle, bestCircle.point)
+
+  // 2. The nearest straight edge, extended to its full length.
+  let best: { seg: EdgeSegment; point: THREE.Vector3; dist: number } | null = null
+  for (const seg of edgeData.segments) {
+    const closest = closestPointOnSegment(localPoint, seg.a, seg.b)
+    if (closest.distanceTo(localPoint) > maxDepthGap) continue
+    const dist = screenDist(closest)
+    if (dist < threshold && (!best || dist < best.dist)) best = { seg, point: closest, dist }
+  }
+  if (best) {
+    const adjacency = adjacencyFor(edgeData.segments)
+    const dir = new THREE.Vector3().subVectors(best.seg.b, best.seg.a).normalize()
+    const start = extendCollinear(best.seg, best.seg.a, dir, adjacency)
+    const end = extendCollinear(best.seg, best.seg.b, dir, adjacency)
+    const worldStart = toWorld(start)
+    const worldEnd = toWorld(end)
+    return {
+      type: 'edge',
+      point: toWorld(best.point),
+      segmentStart: worldStart,
+      segmentEnd: worldEnd,
+      length: worldStart.distanceTo(worldEnd),
+      circle: null,
+    }
+  }
+
+  // 3. On a cylindrical wall itself (a bore, a boss): that wall's diameter,
+  //    taken from the real rim circle of the same wall when there is one
+  //    (see exactRimForPatch). Nothing else: unlike the Mesure tool,
+  //    hovering a flat face must not pop up the diameter of whatever disk
+  //    happens to contain it.
+  if (faceIndex === undefined) return null
+  const patchIndex = edgeData.surfacePatches.facePatch[faceIndex]
+  if (patchIndex === undefined || patchIndex < 0) return null
+  const patch = edgeData.surfacePatches.patches[patchIndex]
+  const exact = exactRimForPatch(edgeData.circles, patch, localPoint)
+  if (exact) return circleResult(exact, closestPointOnCircle(localPoint, exact) ?? exact.center)
+  if (!isFullCircle(patch.angularSpan)) return null
+  const alongAxis = new THREE.Vector3().subVectors(localPoint, patch.center).dot(patch.axis)
+  const nearEnd = Math.abs(alongAxis - patch.axialMin) < Math.abs(alongAxis - patch.axialMax) ? patch.axialMin : patch.axialMax
+  const rim = { center: patch.center.clone().addScaledVector(patch.axis, nearEnd), radius: patch.radius, normal: patch.axis }
+  return circleResult(rim, closestPointOnCircle(localPoint, rim) ?? rim.center)
 }
 
 // A dedicated, much simpler snap for placing a flow-path point: unlike
@@ -379,6 +579,84 @@ export function resolveDistanceMeasurement(
   }
 
   return { a: pointA, b: pointB, distance: pointA.distanceTo(pointB) }
+}
+
+// Cotes manuelles, "Écart entre 2 arêtes": the gap between two picked
+// features. Two parallel edges give their perpendicular separation, like
+// the Mesure tool - but the cote is placed where a drawing would put it,
+// not at the clicked point: in the middle of the stretch where the two
+// edges face each other, or, when they don't overlap at all (the notch
+// side above, the step face below), between their nearest ends, so the
+// cote line runs from one edge's corner straight across to the other
+// edge's line. Every other pair (edge/circle, circle/circle, non-parallel
+// edges) falls back to resolveDistanceMeasurement.
+export function resolveGapMeasurement(
+  pointA: THREE.Vector3,
+  snapA: SnapResult | null,
+  pointB: THREE.Vector3,
+  snapB: SnapResult | null,
+): {
+  a: THREE.Vector3
+  b: THREE.Vector3
+  distance: number
+  parallel: boolean
+  dimLine: [THREE.Vector3, THREE.Vector3] | null
+} {
+  // Two rims on the same axis (the top and bottom of a boss, two shoulders
+  // of a turned part): their center-to-center distance runs down the axis,
+  // i.e. through the middle of the part where it can't be seen. Drawn like
+  // a drawing sheet instead: an extension line from each rim, on the side
+  // that was clicked, out to a cote line parallel to the axis just outside
+  // the larger of the two circles.
+  const circleA = snapA?.type === 'circle' ? snapA.circle : null
+  const circleB = snapB?.type === 'circle' ? snapB.circle : null
+  if (circleA && circleB && Math.abs(circleA.normal.dot(circleB.normal)) > 0.999) {
+    const axis = circleA.normal.clone().normalize()
+    const rel = circleB.center.clone().sub(circleA.center)
+    const along = rel.dot(axis)
+    const offAxis = rel.clone().addScaledVector(axis, -along).length()
+    if (offAxis < Math.max(Math.min(circleA.radius, circleB.radius) * 0.05, 0.1) && Math.abs(along) > 1e-6) {
+      const side = pointA.clone().sub(circleA.center)
+      side.addScaledVector(axis, -side.dot(axis))
+      if (side.lengthSq() < 1e-12) {
+        const helper = Math.abs(axis.y) < 0.99 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0)
+        side.crossVectors(helper, axis)
+      }
+      side.normalize()
+      const outer = Math.max(circleA.radius, circleB.radius)
+      const reach = outer + Math.max(outer * 0.2, 3)
+      return {
+        a: circleA.center.clone().addScaledVector(side, circleA.radius),
+        b: circleB.center.clone().addScaledVector(side, circleB.radius),
+        distance: Math.abs(along),
+        parallel: true,
+        dimLine: [
+          circleA.center.clone().addScaledVector(side, reach),
+          circleB.center.clone().addScaledVector(side, reach),
+        ],
+      }
+    }
+  }
+  const edgeA = snapA?.type === 'edge' && snapA.segmentStart && snapA.segmentEnd ? snapA : null
+  const edgeB = snapB?.type === 'edge' && snapB.segmentStart && snapB.segmentEnd ? snapB : null
+  if (edgeA && edgeB) {
+    const aStart = edgeA.segmentStart!
+    const along = edgeA.segmentEnd!.clone().sub(aStart)
+    const lengthA = along.length()
+    const dirB = edgeB.segmentEnd!.clone().sub(edgeB.segmentStart!).normalize()
+    if (lengthA > 1e-9 && Math.abs(along.clone().normalize().dot(dirB)) > 0.999) {
+      const dir = along.normalize()
+      const t0 = edgeB.segmentStart!.clone().sub(aStart).dot(dir)
+      const t1 = edgeB.segmentEnd!.clone().sub(aStart).dot(dir)
+      const lo = Math.max(0, Math.min(t0, t1))
+      const hi = Math.min(lengthA, Math.max(t0, t1))
+      const t = lo <= hi ? (lo + hi) / 2 : Math.max(t0, t1) < 0 ? 0 : lengthA
+      const a = aStart.clone().addScaledVector(dir, t)
+      const b = closestPointOnLine(a, edgeB.segmentStart!, edgeB.segmentEnd!)
+      return { a, b, distance: a.distanceTo(b), parallel: true, dimLine: null }
+    }
+  }
+  return { ...resolveDistanceMeasurement(pointA, snapA, pointB, snapB), parallel: false, dimLine: null }
 }
 
 // Classic segment-segment closest point (Ericson, "Real-Time Collision

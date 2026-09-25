@@ -30,10 +30,14 @@ const DEFAULT_FILL_LIGHT_POSITION: [number, number, number] = [-6, -4, -6]
 
 export const THEME_COLORS: Record<Theme, ThreeThemeColors> = {
   dark: {
-    canvasBg: '#1a1a2e',
+    // Near-black cool background with a crisp, low-contrast grid: the model is
+    // what stands out. (Sampled from the reference look: bg #0a0c12, grid
+    // lines up to #1a1e2a - lines here are a touch lighter so they stay
+    // readable at grazing angles.)
+    canvasBg: '#0a0c12',
     edgeColor: '#333333',
-    gridCell: '#333344',
-    gridSection: '#3d3d55',
+    gridCell: '#1b1f2a',
+    gridSection: '#2a2f3b',
     ambientIntensity: 0.4,
     measurementText: '#ffffff',
     dimensionLinear: '#66aaff',

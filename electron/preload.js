@@ -7,5 +7,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // it to the app's normal loadFile() pipeline (same one drag-and-drop and
   // the <input type="file"> picker already use).
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
+  setTitleBarOverlay: (options) => ipcRenderer.send('set-titlebar-overlay', options),
   isElectron: true,
 })

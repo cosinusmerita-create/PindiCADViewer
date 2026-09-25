@@ -32,7 +32,22 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
     },
     backgroundColor: '#1a1a2e',
+    // No OS title bar / menu bar: the app draws its own top bar (logo +
+    // Fichier / Affichage / Aide, see MenuBar.tsx) and Electron only overlays
+    // the window buttons on its right end.
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#1a1a2e', symbolColor: '#e2e8f0', height: 48 },
     show: false,
+  })
+  // The native menu is still installed below for its keyboard accelerators
+  // (Ctrl+O, F11, F12, zoom...), just never drawn.
+  mainWindow.setMenuBarVisibility(false)
+
+  // Links opened from the app (the "Site web" menu entry) go to the user's
+  // browser, not to a new Electron window.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url)
+    return { action: 'deny' }
   })
 
   // Surfaces a blank/broken load (e.g. a bad relative asset path in the
@@ -95,14 +110,8 @@ function createWindow() {
     {
       label: 'Affichage',
       submenu: [
-        {
-          label: 'Plein écran',
-          accelerator: 'F11',
-          click: () => {
-            mainWindow.setFullScreen(!mainWindow.isFullScreen())
-          },
-        },
-        { type: 'separator' },
+        // F11 (fullscreen of the 3D view only) is handled by the renderer, see
+        // App.tsx - a native accelerator here would fullscreen the whole window.
         { label: 'Zoom +', accelerator: 'CmdOrCtrl+=', role: 'zoomIn' },
         { label: 'Zoom -', accelerator: 'CmdOrCtrl+-', role: 'zoomOut' },
         { label: 'Zoom 100%', accelerator: 'CmdOrCtrl+0', role: 'resetZoom' },
@@ -143,6 +152,15 @@ function createWindow() {
   })
 }
 
+// Recolors the window buttons overlaid on the custom title bar when the
+// theme changes (see MenuBar.tsx).
+ipcMain.on('set-titlebar-overlay', (event, options) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (win && options && typeof options.color === 'string' && typeof options.symbolColor === 'string') {
+    win.setTitleBarOverlay({ color: options.color, symbolColor: options.symbolColor, height: 48 })
+  }
+})
+
 // Reads a file from disk for the renderer (see preload.js's readFile) -
 // done here rather than via fetch('file://...') in the renderer itself,
 // which would need webSecurity disabled to reliably avoid CORS rejections
@@ -156,15 +174,31 @@ ipcMain.handle('read-file', async (_event, filePath) => {
 // Ouvrir un fichier passé en argument (double-clic sur .step)
 const fileArg = process.argv.find((arg) => GEOMETRY_FILE_RE.test(arg))
 
-app.whenReady().then(() => {
-  createWindow()
+// Single-instance: double-clicking a second .step while the app is already
+// open hands the file to the running window (via 'second-instance') instead
+// of spawning a second app.
+const gotLock = app.requestSingleInstanceLock()
+if (!gotLock) {
+  app.quit()
+} else {
+  app.on('second-instance', (_event, argv) => {
+    if (!mainWindow) return
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.focus()
+    const file = argv.find((arg) => GEOMETRY_FILE_RE.test(arg))
+    if (file) mainWindow.webContents.send('open-file', file)
+  })
 
-  if (fileArg) {
-    mainWindow.webContents.once('did-finish-load', () => {
-      mainWindow.webContents.send('open-file', fileArg)
-    })
-  }
-})
+  app.whenReady().then(() => {
+    createWindow()
+
+    if (fileArg) {
+      mainWindow.webContents.once('did-finish-load', () => {
+        mainWindow.webContents.send('open-file', fileArg)
+      })
+    }
+  })
+}
 
 app.on('window-all-closed', () => {
   // macOS convention: the app stays running (in the dock) with no windows

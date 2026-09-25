@@ -1,4 +1,4 @@
-import { EyeOff, Group, Ungroup } from 'lucide-react'
+import { EyeOff, Group, Pencil, Ungroup } from 'lucide-react'
 import { useModelStore } from '../hooks/useModelState'
 import { findNodeById } from '../utils/componentTree'
 
@@ -15,6 +15,7 @@ export function ContextMenu() {
   const setVisibilityForSelection = useModelStore((s) => s.setVisibilityForSelection)
   const setShowGroupNamePrompt = useModelStore((s) => s.setShowGroupNamePrompt)
   const ungroupNode = useModelStore((s) => s.ungroupNode)
+  const setRenamingNodeId = useModelStore((s) => s.setRenamingNodeId)
 
   if (!contextMenu || !tree) return null
 
@@ -72,6 +73,15 @@ export function ContextMenu() {
           <EyeOff size={14} className="text-slate-500" />
           Masquer
         </button>
+        {!actsOnSelection && (
+          <button
+            onClick={() => runAndClose(() => setRenamingNodeId(node.id))}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-slate-300 hover:bg-white/5"
+          >
+            <Pencil size={14} className="text-slate-500" />
+            Renommer
+          </button>
+        )}
 
         {selectedNodeIds.length >= 2 && (
           <>

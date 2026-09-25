@@ -69,6 +69,23 @@ function DurationSlider({ value, onChange }: { value: number; onChange: (v: numb
   )
 }
 
+function StopOnCollisionToggle({ checked, onChange }: { checked: boolean; onChange: (value: boolean) => void }) {
+  return (
+    <label
+      title="Le mouvement s'arrête au premier contact avec une autre pièce, qui est repérée en rouge"
+      className="flex cursor-pointer items-center gap-2 text-[11px] text-slate-400"
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="accent-sky-500"
+      />
+      Arrêter à la collision
+    </label>
+  )
+}
+
 export function AnimationPanel() {
   const selectedNodeIds = useModelStore((s) => s.selectedNodeIds)
   const key = useMemo(() => encodeSelectionKey(selectedNodeIds), [selectedNodeIds])
@@ -94,6 +111,8 @@ export function AnimationPanel() {
   const [translateDistance, setTranslateDistance] = useState(50)
   const [translateDuration, setTranslateDuration] = useState(2)
   const [translateMode, setTranslateMode] = useState<TimedAnimationMode>('once')
+
+  const [stopOnCollision, setStopOnCollision] = useState(false)
 
   const [presentationSpeed, setPresentationSpeed] = useState(0.15)
   const [collapsed, setCollapsed] = useState(false)
@@ -221,6 +240,7 @@ export function AnimationPanel() {
               </label>
             </div>
             <DurationSlider value={preciseDuration} onChange={setPreciseDuration} />
+            <StopOnCollisionToggle checked={stopOnCollision} onChange={setStopOnCollision} />
             <button
               onClick={() =>
                 startTimedAnimation(key, {
@@ -229,6 +249,7 @@ export function AnimationPanel() {
                   mode: 'once',
                   targetValue: preciseAngle,
                   duration: preciseDuration,
+                  stopOnCollision,
                 })
               }
               className="flex w-full items-center justify-center gap-1.5 rounded-md bg-sky-500 px-2 py-1.5 text-xs font-medium text-white transition-colors hover:bg-sky-400"
@@ -273,6 +294,7 @@ export function AnimationPanel() {
                 Yoyo
               </button>
             </div>
+            <StopOnCollisionToggle checked={stopOnCollision} onChange={setStopOnCollision} />
             <button
               onClick={() =>
                 startTimedAnimation(key, {
@@ -281,6 +303,7 @@ export function AnimationPanel() {
                   mode: translateMode,
                   targetValue: translateDistance,
                   duration: translateDuration,
+                  stopOnCollision,
                 })
               }
               className="flex w-full items-center justify-center gap-1.5 rounded-md bg-sky-500 px-2 py-1.5 text-xs font-medium text-white transition-colors hover:bg-sky-400"

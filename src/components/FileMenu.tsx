@@ -10,6 +10,7 @@ import {
   Menu,
   Save,
   Share2,
+  Trash2,
   Upload,
   X,
 } from 'lucide-react'
@@ -17,6 +18,7 @@ import { useModelStore } from '../hooks/useModelState'
 import { useToastStore } from '../hooks/useToastStore'
 import { useDevice } from '../hooks/useDevice'
 import { useFileLoader, OPEN_FILE_ACCEPT } from '../hooks/useFileLoader'
+import { clearMeshCache } from '../utils/meshCache'
 import {
   buildPdfBlobAndFile,
   exportTechnicalPdf,
@@ -26,11 +28,16 @@ import {
   saveProjectFile,
 } from '../utils/fileActions'
 
+const WEBSITE_URL = 'https://cosinusmerita-create.github.io/PindiCADViewer/'
+
 // Groups every save/export/share action behind one "Fichier" dropdown, per
 // the spec's request to collect them in one place - "Ouvrir" itself stays
 // as its own prominent toolbar button too (unchanged, since it's the single
 // most common action), duplicated here just for discoverability.
-export function FileMenu() {
+// `variant="menubar"` is the flat text entry of the top menu bar (see MenuBar.tsx), available even
+// before a model is loaded (then only Ouvrir / Charger un projet are offered);
+// the default `toolbar` variant only exists once a model is open.
+export function FileMenu({ variant = 'toolbar' }: { variant?: 'toolbar' | 'menubar' }) {
   const object = useModelStore((s) => s.object)
   const fileName = useModelStore((s) => s.fileName)
   const projectName = useModelStore((s) => s.projectName)
@@ -50,9 +57,9 @@ export function FileMenu() {
     setShareOpen(false)
   }
 
-  const handleSaveProject = () => {
-    saveProjectFile(pushToast)
+  const handleSaveProject = async () => {
     close()
+    await saveProjectFile(pushToast)
   }
 
   const handleClose = () => {
@@ -70,7 +77,13 @@ export function FileMenu() {
 
   const handleCapturePng = (transparent: boolean) => {
     const state = useModelStore.getState()
-    if (!state.capturePng || !fileName) return
+    if (!state.capturePng || !fileName) {
+      // The 3D view isn't ready to be captured (e.g. still loading): say so
+      // instead of leaving the menu open and doing nothing.
+      pushToast("Capture indisponible : la vue 3D n'est pas prête")
+      close()
+      return
+    }
     const dataUrl = state.capturePng(transparent)
     const link = document.createElement('a')
     link.href = dataUrl
@@ -105,7 +118,10 @@ export function FileMenu() {
 
   const handleCopyLink = async () => {
     try {
-      await navigator.clipboard.writeText(window.location.href)
+      // The desktop app's own address is a localhost/file URL nobody else can
+      // open - share the public site instead.
+      const url = window.electronAPI?.isElectron ? WEBSITE_URL : window.location.href
+      await navigator.clipboard.writeText(url)
       pushToast('Lien copié')
     } catch {
       pushToast('Impossible de copier le lien')
@@ -137,10 +153,11 @@ export function FileMenu() {
     }
   }
 
-  if (!object) return null
+  const inMenuBar = variant === 'menubar'
+  if (!object && !inMenuBar) return null
 
   return (
-    <div className="relative">
+    <div className={inMenuBar ? 'relative h-full' : 'relative'}>
       <input
         ref={openInputRef}
         type="file"
@@ -165,11 +182,19 @@ export function FileMenu() {
       <button
         title="Fichier"
         onClick={() => setOpen((v) => !v)}
-        className={`flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
-          open ? 'bg-sky-500 text-white' : 'bg-white/5 text-slate-400 hover:text-slate-200'
-        }`}
+        className={
+          inMenuBar
+            ? `app-no-drag h-full px-3 text-[13px] transition-colors ${
+                open ? 'bg-[var(--bg-hover)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
+              }`
+            : `flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                open ? 'bg-sky-500 text-white' : 'bg-white/5 text-slate-400 hover:text-slate-200'
+              }`
+        }
       >
-        {isMobile ? (
+        {inMenuBar ? (
+          'Fichier'
+        ) : isMobile ? (
           <Menu size={16} />
         ) : (
           <>
@@ -179,11 +204,16 @@ export function FileMenu() {
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-50" onClick={close}>
+        <>
+          {/* Click-outside catcher kept as a SIBLING of the menu: as its parent
+              it would become the menu's positioned ancestor and "top-full"
+              would resolve against the whole viewport, not the trigger. */}
+          <div className="app-no-drag fixed inset-0 z-40" onClick={close} />
           <div
-            onClick={(e) => e.stopPropagation()}
-            className="absolute left-0 top-9 w-64 overflow-hidden rounded-lg border border-[var(--border-light)] bg-[var(--bg-panel)] py-1 text-sm shadow-xl"
+            className={`app-no-drag absolute left-0 z-50 ${inMenuBar ? 'top-full' : 'top-9'} w-64 overflow-hidden rounded-lg border border-[var(--border-light)] bg-[var(--bg-panel)] py-1 text-sm shadow-xl`}
           >
+            {object && (
+            <>
             <div className="px-3 py-2">
               <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">
                 Nom du projet (fiche PDF)
@@ -197,6 +227,8 @@ export function FileMenu() {
               />
             </div>
             <div className="my-1 h-px bg-white/5" />
+            </>
+            )}
 
             <button
               onClick={() => {
@@ -207,12 +239,14 @@ export function FileMenu() {
             >
               <FolderOpen size={14} className="text-slate-500" /> Ouvrir
             </button>
-            <button
-              onClick={handleSaveProject}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-slate-300 hover:bg-white/5"
-            >
-              <Save size={14} className="text-slate-500" /> Enregistrer le projet (.pindi)
-            </button>
+            {object && (
+              <button
+                onClick={handleSaveProject}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-slate-300 hover:bg-white/5"
+              >
+                <Save size={14} className="text-slate-500" /> Enregistrer le projet (.pindi)
+              </button>
+            )}
             <button
               onClick={() => {
                 projectInputRef.current?.click()
@@ -222,6 +256,20 @@ export function FileMenu() {
             >
               <Upload size={14} className="text-slate-500" /> Charger un projet (.pindi)
             </button>
+            <button
+              onClick={async () => {
+                const count = await clearMeshCache()
+                pushToast(count > 0 ? `Cache vidé (${count} modèle${count > 1 ? 's' : ''})` : 'Le cache est déjà vide')
+                close()
+              }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-slate-300 hover:bg-white/5"
+              title="Supprime les modèles STEP mémorisés pour une réouverture rapide"
+            >
+              <Trash2 size={14} className="text-slate-500" /> Vider le cache des modèles
+            </button>
+
+            {object && (
+              <>
 
             <div className="my-1 h-px bg-white/5" />
 
@@ -296,8 +344,10 @@ export function FileMenu() {
                 </button>
               </div>
             )}
+              </>
+            )}
           </div>
-        </div>
+        </>
       )}
     </div>
   )

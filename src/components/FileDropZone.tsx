@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { UploadCloud } from 'lucide-react'
 import { OPEN_FILE_ACCEPT, useFileLoader } from '../hooks/useFileLoader'
 import { useModelStore } from '../hooks/useModelState'
+import { STEP_QUALITY_OPTIONS, useStepQualityStore, type StepQuality } from '../utils/stepQuality'
 
 interface FileDropZoneProps {
   children: ReactNode
@@ -11,10 +12,30 @@ function dragHasFiles(e: DragEvent) {
   return Array.from(e.dataTransfer?.types ?? []).includes('Files')
 }
 
+// Whole seconds since loading started (0 when idle) - the parse runs in a
+// worker with no incremental progress to report, so elapsed time is the
+// only honest signal that it's still working.
+function useElapsedSeconds(active: boolean): number {
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    if (!active) {
+      setElapsed(0)
+      return
+    }
+    const start = Date.now()
+    const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 1000)
+    return () => window.clearInterval(timer)
+  }, [active])
+  return elapsed
+}
+
 export function FileDropZone({ children }: FileDropZoneProps) {
   const { loadFile } = useFileLoader()
   const object = useModelStore((s) => s.object)
   const isLoading = useModelStore((s) => s.isLoading)
+  const quality = useStepQualityStore((s) => s.quality)
+  const setQuality = useStepQualityStore((s) => s.setQuality)
+  const elapsed = useElapsedSeconds(isLoading)
   const error = useModelStore((s) => s.error)
   const [isDragging, setIsDragging] = useState(false)
   const dragCounter = useRef(0)
@@ -110,6 +131,27 @@ export function FileDropZone({ children }: FileDropZoneProps) {
           >
             Ouvrir un fichier
           </button>
+          <label
+            style={{ pointerEvents: 'auto' }}
+            className="flex flex-col items-center gap-1 text-xs text-slate-500"
+            title="Finesse du maillage des fichiers STEP : plus c'est fin, plus l'ouverture est longue"
+          >
+            <span>Qualité STEP</span>
+            <select
+              value={quality}
+              onChange={(e) => setQuality(e.target.value as StepQuality)}
+              className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-200 outline-none"
+            >
+              {STEP_QUALITY_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <span className="text-[11px] text-slate-600">
+              {STEP_QUALITY_OPTIONS.find((o) => o.value === quality)?.hint}
+            </span>
+          </label>
         </div>
       )}
 
@@ -117,7 +159,12 @@ export function FileDropZone({ children }: FileDropZoneProps) {
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-slate-950/60">
           <div className="flex flex-col items-center gap-3">
             <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-600 border-t-sky-400" />
-            <p className="text-sm text-slate-300">Chargement du modèle…</p>
+            <p className="text-sm text-slate-300">Chargement du modèle… {elapsed} s</p>
+            {elapsed >= 15 && (
+              <p className="max-w-xs text-center text-xs text-slate-500">
+                Les gros assemblages STEP sont longs à analyser. Choisissez la qualité « Standard » pour aller plus vite.
+              </p>
+            )}
           </div>
         </div>
       )}

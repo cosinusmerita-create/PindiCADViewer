@@ -24,15 +24,16 @@ const SECTIONS: SectionDef[] = [
   { id: 'measurements', label: '8. Mesures et Smart Snapping' },
   { id: 'auto-dimensions', label: '9. Fiche de cotes automatiques' },
   { id: 'animation', label: '10. Animation et déplacement' },
-  { id: 'annotations', label: '11. Annotations' },
-  { id: 'export', label: '12. Sauvegarde et export' },
-  { id: 'flow', label: '13. Flux de fluide' },
-  { id: 'ai-assistant', label: '14. Assistant IA' },
-  { id: 'ai-commands', label: '15. Commandes IA' },
-  { id: 'themes', label: '16. Thèmes' },
-  { id: 'shortcuts', label: '17. Raccourcis clavier' },
-  { id: 'faq', label: '18. Dépannage et FAQ' },
-  { id: 'install', label: '19. Installation PWA et Desktop' },
+  { id: 'explode-collision', label: '11. Vue éclatée et collision' },
+  { id: 'annotations', label: '12. Annotations' },
+  { id: 'export', label: '13. Sauvegarde et export' },
+  { id: 'flow', label: '14. Flux de fluide' },
+  { id: 'ai-assistant', label: '15. Assistant IA' },
+  { id: 'ai-commands', label: '16. Commandes IA' },
+  { id: 'themes', label: '17. Thèmes' },
+  { id: 'shortcuts', label: '18. Raccourcis clavier' },
+  { id: 'faq', label: '19. Dépannage et FAQ' },
+  { id: 'install', label: '20. Installation PWA et Desktop' },
 ]
 
 function SectionTitle({ children }: { children: ReactNode }) {
@@ -212,7 +213,7 @@ export function HelpPanel() {
               <DataTable
                 headers={['Format', 'Extension', 'Moteur', 'Précision']}
                 rows={[
-                  ['STEP/STP', '.step, .stp', 'occt-import-js (WASM)', 'Exacte (B-Rep)'],
+                  ['STEP/STP', '.step, .stp', 'occt-import-js (WASM)', 'Maillage OpenCascade (finesse au choix)'],
                   ['STL', '.stl', 'Three.js STLLoader', 'Triangulée'],
                   ['OBJ', '.obj', 'Three.js OBJLoader', 'Triangulée'],
                   ['Projet Pindi', '.pindi', 'JSON natif', 'Session complète'],
@@ -235,8 +236,31 @@ export function HelpPanel() {
                   </>,
                 ]}
               />
+              <SubTitle>Qualité STEP et temps d'ouverture</SubTitle>
+              <Body>
+                Sur l'écran d'accueil, le menu <strong className="text-[var(--text-primary)]">Qualité STEP</strong> règle la
+                finesse du maillage avant d'ouvrir un fichier. Plus il est fin, plus l'ouverture est longue. Le choix est
+                mémorisé.
+              </Body>
+              <DataTable
+                headers={['Qualité', 'Quand l\'utiliser', 'Exemple (assemblage de 61 pièces, 5 Mo)']}
+                rows={[
+                  ['Standard (rapide)', 'Usage courant, recommandé', '≈ 30 s, 90 000 triangles'],
+                  ['Fin', 'Cotes plus fidèles sur les cylindres', '≈ 40 s, 224 000 triangles'],
+                  ['Très précis (lent)', 'Cotes au centième de mm', 'Plusieurs minutes sur un gros assemblage'],
+                ]}
+              />
+              <SubTitle>Réouverture rapide (cache)</SubTitle>
+              <Body>
+                Après la première ouverture d'un fichier STEP, son maillage est mémorisé sur votre ordinateur. Rouvrir le
+                même fichier (même contenu, même qualité) ne prend plus que quelques secondes, et le message « Ouverture
+                rapide : modèle chargé depuis le cache » s'affiche. Le cache garde les 6 derniers modèles ; le menu
+                <strong className="text-[var(--text-primary)]"> Fichier → Vider le cache des modèles</strong> le supprime.
+              </Body>
               <Tip>
-                Astuce : le parsing STEP se fait dans un Web Worker dédié pour ne pas bloquer l'interface.
+                Astuce : le parsing STEP se fait dans un Web Worker dédié pour ne pas bloquer l'interface. Pendant le
+                chargement, le temps écoulé s'affiche. Pour changer de qualité, fermez le projet (clic sur le logo) puis
+                rouvrez le fichier.
               </Tip>
             </section>
 
@@ -246,7 +270,21 @@ export function HelpPanel() {
               <List
                 items={[
                   <>
-                    <strong className="text-[var(--text-primary)]">Toolbar (haut)</strong> — Boutons d'action principaux
+                    <strong className="text-[var(--text-primary)]">Barre de menus (tout en haut)</strong> — Le logo, suivi des
+                    menus Fichier, Affichage (modes d'affichage, grille, plein écran, thème) et Aide (guide, site web, à
+                    propos). Un clic sur le logo revient à l'écran d'accueil. Dans l'application desktop, cette barre remplace
+                    la barre de titre de Windows (les boutons réduire/agrandir/fermer restent à droite)
+                  </>,
+                  <>
+                    <strong className="text-[var(--text-primary)]">Barre d'outils, sur 3 lignes</strong> — Ligne 1 :
+                    Ouvrir, modes d'affichage, vues FA à ISO, puis Réinitialiser la vue, État d'origine, Plan de
+                    coupe, Réinitialiser les couleurs et Plein écran. Ligne 2 : tous les outils, rangés par groupe (Outils,
+                    Affichage, Assemblage, Simulation). Ligne 3 : les options de l'outil actif, visible seulement quand un
+                    outil est en cours
+                  </>,
+                  <>
+                    <strong className="text-[var(--text-primary)]">Réglages du plan de coupe</strong> — Ils s'affichent sous
+                    la barre d'outils quand vous cliquez sur « Plan de coupe »
                   </>,
                   <>
                     <strong className="text-[var(--text-primary)]">Panneau COMPOSANTS (gauche)</strong> — Arborescence des pièces
@@ -259,7 +297,32 @@ export function HelpPanel() {
                     dimensions
                   </>,
                   <>
-                    <strong className="text-[var(--text-primary)]">Plan de coupe (bas)</strong> — Barre de contrôle de la section
+                    <strong className="text-[var(--text-primary)]">Barre de statut (bas)</strong> — Nom du fichier, nombre de
+                    triangles et choix du thème
+                  </>,
+                ]}
+              />
+              <Body>Sur écran étroit ou mobile, les groupes passent à la ligne et les boutons n'affichent plus que leur icône.</Body>
+              <SubTitle>Actions de vue</SubTitle>
+              <List
+                items={[
+                  <>
+                    <strong className="text-[var(--text-primary)]">Réinitialiser la vue</strong> — recentre la caméra
+                  </>,
+                  <>
+                    <strong className="text-[var(--text-primary)]">État d'origine</strong> — annule TOUTES les modifications et
+                    remet le modèle comme à son ouverture : positions des pièces, éclatement, animations, couleurs,
+                    transparence, pièces masquées, groupes, plan de coupe, mesures, annotations, cotes, flux, outil Collision,
+                    sélection et caméra. Une confirmation est demandée s'il y a des modifications non enregistrées. Le thème,
+                    la grille et la qualité STEP ne sont pas modifiés
+                  </>,
+                  <>
+                    <strong className="text-[var(--text-primary)]">Réinitialiser les couleurs</strong> — supprime les couleurs
+                    personnalisées
+                  </>,
+                  <>
+                    <strong className="text-[var(--text-primary)]">Plein écran</strong> — affiche uniquement la vue 3D sur tout
+                    l'écran (barre d'outils et panneaux masqués). Appuyez sur Échap pour quitter
                   </>,
                 ]}
               />
@@ -333,6 +396,29 @@ export function HelpPanel() {
                   </>,
                 ]}
               />
+              <Body>
+                Quand le fichier ne donne pas de nom à ses pièces (ou seulement « Pièce 1, Pièce 2… »), l'application les
+                nomme d'après leur forme : « Pale · 1, Pale · 2, Pale · 3 », « Disque », « Plaque », « Tige Ø20 × 429 »…
+                Les pièces identiques sont numérotées, et les dimensions ne sont ajoutées que si deux formes différentes
+                portent le même nom. Les noms présents dans le fichier sont toujours conservés.
+              </Body>
+              <SubTitle>Renommer une pièce ou un groupe</SubTitle>
+              <List
+                items={[
+                  'Double-clic sur le nom dans la liste (ou clic droit sur la ligne ou sur la pièce → « Renommer »), tapez le nouveau nom puis Entrée ; Échap annule',
+                  'Le nouveau nom apparaît partout : liste, fenêtre de sélection, fiche de cotes, commandes IA',
+                  'Les noms choisis sont enregistrés dans le fichier .pindi ; « État d’origine » remet les noms du fichier',
+                ]}
+              />
+              <SubTitle>Grouper des pièces</SubTitle>
+              <List
+                items={[
+                  'Sélectionnez plusieurs pièces : Ctrl+clic pour en ajouter ou retirer une, Maj+clic pour une plage, ou l’outil « Sélection rectangle »',
+                  'Cliquez sur « Grouper » (groupe Assemblage, actif dès 2 pièces sélectionnées) et donnez un nom : les pièces sont réunies dans un dossier de l’arborescence',
+                  'Le groupe se sélectionne, se colore, se masque et s’anime comme une seule pièce (voir section 10) - fini de recocher chaque pièce',
+                  'Clic droit sur le dossier (dans la liste ou dans la vue 3D) → « Dissocier » : les pièces reviennent à la racine, sans perdre leurs couleurs ni leurs réglages',
+                ]}
+              />
             </section>
 
             <section id="colors" className="mt-8">
@@ -342,7 +428,8 @@ export function HelpPanel() {
                 items={[
                   'Pièce unique → Gris métallique (#b0b0b0)',
                   'Assemblage → Palette automatique de couleurs distinctes',
-                  'Toggle "Couleurs par pièce" dans la toolbar',
+                  'Toggle "Couleurs par pièce" dans la toolbar : les pièces de même forme et de mêmes dimensions (4 vis identiques, 3 pales identiques...) reçoivent la MÊME couleur, quelle que soit leur position ou leur orientation',
+                  'Bouton "Couleur aléatoire" (à droite de "Couleurs par pièce", actif seulement quand celui-ci l’est) : chaque clic tire une nouvelle série de couleurs au hasard - les pièces identiques gardent la même couleur, et les couleurs choisies à la main ne changent pas. Cliquez jusqu’à trouver la série qui vous plaît : elle reste affichée (elle n’est pas enregistrée dans le fichier .pindi)',
                 ]}
               />
               <SubTitle>Couleur personnalisée</SubTitle>
@@ -356,7 +443,7 @@ export function HelpPanel() {
                     <strong className="text-[var(--text-primary)]">Bouton ↺</strong> — Remet la couleur auto
                   </>,
                   <>
-                    <strong className="text-[var(--text-primary)]">Réinitialiser toutes</strong> — Bouton toolbar
+                    <strong className="text-[var(--text-primary)]">Réinitialiser les couleurs</strong> — Bouton de la toolbar (ligne 1)
                   </>,
                 ]}
               />
@@ -383,11 +470,12 @@ export function HelpPanel() {
               <SectionTitle>6. Plan de coupe dynamique</SectionTitle>
               <List
                 items={[
-                  'Cliquez "Coupe activée" dans la barre en bas',
+                  'Cliquez sur le bouton "Plan de coupe" (ciseaux) dans la barre d\'outils : les réglages s\'affichent en dessous',
+                  'Cliquez "Coupe désactivée" pour l\'activer',
                   'Choisissez l\'axe (X, Y, Z)',
-                  'Déplacez le slider pour positionner le plan',
+                  'Déplacez le slider pour positionner le plan (position en mm)',
                   'La section est remplie (rendu solide, pas de vide)',
-                  'Re-cliquez pour désactiver',
+                  'Le bouton reste allumé tant que la coupe est active, même si vous refermez les réglages',
                 ]}
               />
               <Tip>Astuce : combinez coupe + transparence pour voir l'intérieur d'un assemblage complexe.</Tip>
@@ -408,7 +496,7 @@ export function HelpPanel() {
 
             <section id="measurements" className="mt-8">
               <SectionTitle>8. Mesures et Smart Snapping</SectionTitle>
-              <Body>Précision basée sur la topologie exacte du fichier STEP (B-Rep).</Body>
+              <Body>Précision basée sur le maillage du fichier STEP, dont la finesse dépend de la qualité choisie à l'ouverture (voir section 1).</Body>
               <Body>Activation : Bouton Mesure (icône règle). Curseur en croix.</Body>
               <SubTitle>Accrochage intelligent au survol</SubTitle>
               <DataTable
@@ -448,7 +536,11 @@ export function HelpPanel() {
               <List
                 items={[
                   'Boîte d\'encombrement (L × l × H en mm) en pointillés bleu',
-                  'Diamètres principaux (regroupés : "4× Ø 5.50 mm")',
+                  'Chaîne de cotes entre faces sur chaque axe (parois, ouvertures, niveaux), lignes de rappel partant des faces',
+                  'Une cote vue de bout (ex. "l" en vue de face) est masquée tant que la vue ne tourne pas',
+                  'Sur une pièce tournée, seules les vraies faces planes sont cotées (les facettes des cylindres ne créent plus de fausses cotes)',
+                  'Diamètres principaux (regroupés : "4× Ø 5.50 mm"), valeur exacte lue sur le bord réel du cercle',
+                  'Étiquettes de diamètre réparties autour de l\'axe, reliées au bord de leur cercle ; un perçage répété n\'a qu\'une étiquette',
                   'Entraxe / PCD des trous de fixation',
                   'Épaisseurs entre plans parallèles',
                 ]}
@@ -463,6 +555,19 @@ export function HelpPanel() {
                   'Export PDF et bouton Copier',
                 ]}
               />
+              <SubTitle>Cotes manuelles</SubTitle>
+              <List
+                items={[
+                  'Bouton "Cotes manuelles" : la vue passe en "Lignes cachées supprimées"',
+                  "Mode \"Longueur\" : cliquez sur une arête → sa cote s'affiche (longueur de l'arête entière)",
+                  'Mode "Écart entre 2 arêtes" : cliquez sur une arête puis sur une autre → leur écart (arêtes parallèles : distance perpendiculaire, placée entre leurs extrémités les plus proches)',
+                  'Deux cercles de même axe (ex. haut et bas d\'un bossage) : la cote est tirée à l\'extérieur de la pièce avec des lignes de rappel, du côté où vous cliquez le premier cercle',
+                  'Cliquez sur un bord de trou ou un cylindre → son diamètre exact, quelle que soit sa taille',
+                  'Seules les arêtes visibles sont sélectionnables ; une face plate seule n\'affiche rien',
+                  'Les cotes rejoignent le panneau Mesures (X pour en supprimer une) et sont enregistrées dans le projet .pindi',
+                  "Escape ou re-clic sur le bouton : sortie et retour à l'affichage précédent",
+                ]}
+              />
             </section>
 
             <section id="animation" className="mt-8">
@@ -471,18 +576,101 @@ export function HelpPanel() {
               <SubTitle>Rotation continue</SubTitle>
               <List items={['Axes X, Y, Z (combinables)', 'Vitesse : 0.1 à 5 tours/s, sens horaire/anti-horaire']} />
               <SubTitle>Rotation par angle</SubTitle>
-              <List items={['Angle en degrés + axe + durée (0.5s à 10s)']} />
+              <List items={['Angle en degrés + axe + durée (0.5s à 10s)', 'Case « Arrêter à la collision » (voir section 11)']} />
               <SubTitle>Translation</SubTitle>
-              <List items={['Axe + distance en mm + durée', 'Mode aller simple ou yoyo (boucle)']} />
+              <List
+                items={[
+                  'Axe + distance en mm + durée',
+                  'Mode aller simple ou yoyo (boucle)',
+                  'Case « Arrêter à la collision » (voir section 11)',
+                ]}
+              />
+              <SubTitle>Animer un groupe de pièces</SubTitle>
+              <List
+                items={[
+                  'Créez le groupe avec « Grouper » (voir section 4), puis cliquez sur son dossier : toutes les commandes du panneau ANIMATION agissent sur l’ensemble, qui bouge comme un seul bloc rigide',
+                  'Une sélection multiple non groupée s’anime aussi comme un bloc, mais il faut la refaire à chaque fois : le groupe la garde',
+                  'Vous pouvez créer plusieurs groupes et animer chacun avec sa propre vitesse et ses propres axes',
+                ]}
+              />
+              <SubTitle>Centre de rotation</SubTitle>
+              <Body>
+                Une pièce ou un groupe tourne autour de son centre de gravité (moyenne de ses surfaces), pas du centre de sa
+                boîte englobante. Pour un ensemble symétrique (un rotor à 3 pales autour de son mât, par exemple), cet
+                axe passe exactement par le mât : il tourne sur place au lieu de décrire un petit cercle.
+              </Body>
               <SubTitle>Mode Présentation</SubTitle>
               <Body>Rotation lente axe Y (turntable).</Body>
-              <SubTitle>Vue éclatée</SubTitle>
-              <List items={['Bouton "Éclater" — sépare les pièces', 'Slider 0% (assemblé) à 100% (éclaté)']} />
+              <Body>La vue éclatée a sa propre section (11).</Body>
               <Body>Contrôles : Play/Pause, Stop &amp; Reset.</Body>
             </section>
 
+            <section id="explode-collision" className="mt-8">
+              <SectionTitle>11. Vue éclatée et collision</SectionTitle>
+              <SubTitle>Vue éclatée</SubTitle>
+              <Body>
+                Bouton <strong className="text-[var(--text-primary)]">Éclater</strong> (groupe Assemblage). Les réglages
+                apparaissent sur la ligne 3 de la barre d'outils.
+              </Body>
+              <DataTable
+                headers={['Type', 'Effet']}
+                rows={[
+                  ['Radial', 'Chaque pièce s\'éloigne du centre de l\'assemblage, proportionnellement à sa distance (défaut)'],
+                  ['Axial X / Y / Z', 'Les pièces ne bougent que le long d\'un axe : idéal pour des pièces empilées, un arbre, un cylindre'],
+                  [
+                    'Sous-ensembles',
+                    'Les grands blocs s\'écartent d\'abord ; le curseur « Détail » écarte ensuite les pièces à l\'intérieur de chaque bloc',
+                  ],
+                ]}
+              />
+              <List
+                items={[
+                  <>
+                    <strong className="text-[var(--text-primary)]">Curseur 0-100 %</strong> — de l'assemblé à l'éclaté
+                  </>,
+                  <>
+                    <strong className="text-[var(--text-primary)]">Pas à pas</strong> — les pièces partent une par une, de
+                    l'extérieur vers le centre : le curseur sert de ligne de temps de démontage
+                  </>,
+                  <>
+                    <strong className="text-[var(--text-primary)]">Guides</strong> — lignes pointillées entre la position
+                    d'origine et la position éclatée
+                  </>,
+                ]}
+              />
+              <Tip>
+                Le mode « Sous-ensembles » dépend de la structure du fichier STEP : si l'arbre est à plat, chaque pièce forme
+                son propre bloc et il se comporte comme le mode Radial.
+              </Tip>
+
+              <SubTitle>Déplacer une pièce avec collision</SubTitle>
+              <List
+                items={[
+                  'Remettez l\'éclatement à 0 (la poignée ne s\'affiche pas tant qu\'il est actif)',
+                  'Cliquez sur « Collision » (groupe Assemblage) puis sélectionnez la pièce à déplacer',
+                  'Choisissez Déplacer ou Tourner, puis glissez la poignée qui apparaît sur la pièce',
+                  'Au premier contact avec une autre pièce, le mouvement s\'arrête net : les deux pièces passent en rouge et la barre indique « Contact : A ↔ B »',
+                  'Son : bip au moment du blocage (activable/désactivable)',
+                  'Interférences : repère en rouge les pièces qui se traversent dans l\'état actuel et les liste',
+                ]}
+              />
+              <SubTitle>Animation qui s'arrête à la collision</SubTitle>
+              <List
+                items={[
+                  'Dans le panneau ANIMATION, cochez « Arrêter à la collision » avant de cliquer sur Tourner ou Déplacer',
+                  'La pièce s\'arrête au premier contact et le message « Collision : A ↔ B - mouvement arrêté » s\'affiche',
+                  'En mode Yoyo, l\'animation s\'arrête définitivement au premier contact',
+                ]}
+              />
+              <Tip>
+                Les contacts déjà présents quand le mouvement commence sont ignorés (les pièces assemblées se touchent : seul un
+                contact nouveau bloque). Les autres pièces sont considérées comme fixes pendant l'animation. La détection
+                compare les maillages triangle par triangle : elle peut prendre un instant sur une pièce très détaillée.
+              </Tip>
+            </section>
+
             <section id="annotations" className="mt-8">
-              <SectionTitle>11. Annotations</SectionTitle>
+              <SectionTitle>12. Annotations</SectionTitle>
               <List
                 items={[
                   'Activez Annoter (icône bulle)',
@@ -496,12 +684,14 @@ export function HelpPanel() {
             </section>
 
             <section id="export" className="mt-8">
-              <SectionTitle>12. Sauvegarde et export</SectionTitle>
+              <SectionTitle>13. Sauvegarde et export</SectionTitle>
               <SubTitle>Enregistrer (.pindi)</SubTitle>
               <List
                 items={[
-                  'Sauvegarde caméra, couleurs, visibilité, mesures, annotations, coupe',
-                  'Pour restaurer : ouvrir le .pindi puis le STEP source',
+                  'Sauvegarde caméra, couleurs, visibilité, transparence, mesures, annotations, coupe, ainsi que les groupes créés avec « Grouper », les noms donnés aux pièces et aux groupes, et le mode « Couleurs par pièce » (avec la série de « Couleur aléatoire » affichée) : tout réapparaît à l’ouverture du .pindi. Sont aussi enregistrés la sélection des pièces et le module Impression 3D (panneau ouvert, échelle, découpe, plateau, emboîtement, aperçu éclaté) : le projet s’ouvre exactement dans l’état du dernier enregistrement',
+                  "Le fichier source (STEP, STL ou OBJ) est inclus dans le .pindi, compressé : le projet est autonome et s'ouvre seul, sans redemander le fichier d'origine (un .pindi fait environ le quart de la taille du STEP)",
+                  'Pour restaurer : Fichier → Charger un projet (.pindi), ou glissez le .pindi dans la fenêtre',
+                  "Un ancien .pindi enregistré sans fichier source s'ouvre directement si ce modèle a déjà été ouvert sur cet ordinateur (cache) ; sinon le fichier source est demandé. Réenregistrez-le pour l'inclure",
                 ]}
               />
               <SubTitle>Export PDF</SubTitle>
@@ -515,10 +705,26 @@ export function HelpPanel() {
               <Body>Vue actuelle en haute résolution (fond transparent en option).</Body>
               <SubTitle>Partage</SubTitle>
               <Body>Web Share sur mobile, téléchargement sur desktop.</Body>
+              <SubTitle>Impression 3D (échelle + tronçons)</SubTitle>
+              <List
+                items={[
+                  "Bouton « Impression 3D » (groupe Impression de la barre d'outils) : réduit la pièce à l'échelle puis la découpe en tronçons qui tiennent sur le plateau de l'imprimante",
+                  "1. Échelle : en % (ou 100 / 50 / 25 / 10 %) ou en hauteur cible en mm. Le modèle affiché ne change pas : l'échelle et la coupe ne s'appliquent qu'à l'export",
+                  "2. Découpe : axe de coupe (auto = la dimension la plus longue), « Par nombre de tronçons » ou « Par hauteur max. », bouton « Tenir dans la hauteur du plateau ». Les plans de coupe s'affichent en bleu dans la vue 3D",
+                  "3. Plateau : X / Y / Z en mm (256 × 256 × 256 par défaut). L'aperçu indique pour chaque tronçon ses dimensions L × l × H et « ✓ tient » ou « ✗ trop grand »",
+                  "Exporter : un zip de STL binaires (un par tronçon, Z vers le haut, base à Z = 0) + un LISEZ-MOI. Chaque tronçon a des faces de coupe fermées : il est étanche et s'imprime tel quel",
+                  "Pièces prises en compte : la sélection si elle existe, sinon toutes les pièces visibles, dans leur position actuelle (désactivez la vue éclatée avant d'exporter)",
+                  "5. Emboîtement (pièces longues comme une pale) : sélectionnez la ou les pièces dans l'arborescence, puis cochez « Alvéoles carrées + broches d'assemblage ». Chaque plan de coupe reçoit des alvéoles carrées (broche + jeu, 0,25 mm par côté par défaut) creusées dans les deux tronçons, sur 12 mm de profondeur ; la broche sort dans un STL à part (broche_emboitement.stl, un seul modèle à imprimer en plusieurs exemplaires) à imprimer À PLAT. Le carré bloque la torsion. Les alvéoles restent dans la matière sur toute leur profondeur, même si la pale vrille ; sinon la profondeur est réduite, et le LISEZ-MOI signale les plans sans emboîtement complet",
+                  "Aperçu éclaté des tronçons (bouton sous l'aperçu) : remplace le modèle par les vrais tronçons découpés, chacun d'une couleur, écartés le long de l'axe (curseur « Écart »), avec les alvéoles et les broches jaunes entre eux. Le modèle d'origine est masqué pendant l'aperçu et revient en le quittant ou en fermant le panneau. Cliquez sur un tronçon (dans la vue 3D ou dans la liste) pour afficher sa fiche : nom du STL, taille, volume et nombre de triangles",
+                  "Broche : dans la section « 4. Emboîtement », les boutons STL et STEP exportent UNE seule broche (elles sont toutes identiques), à garder pour l'imprimer plus tard en autant d'exemplaires que nécessaire ; la quantité est indiquée à l'export et dans le LISEZ-MOI. Le STL est un maillage prêt pour le trancheur ; le STEP est un vrai solide CAO (faces planes) modifiable dans SolidWorks ou FreeCAD. Elle est aussi dans le zip d'export (broche_emboitement.stl)",
+                  "Conseils d'impression (aussi dans le LISEZ-MOI) : tronçons imprimés debout sur leur face de coupe, bordure de 8 à 10 mm, 3 à 4 périmètres, ponçage grain 120/180 des faces d'assemblage, colle époxy bi-composant",
+                  "Limite : pas de tube central traversant (contrairement à Pindi Blade Profiler, dont les tronçons sont paramétriques) ; un maillage source non étanche peut donner une face de coupe incomplète, signalée à l'export",
+                ]}
+              />
             </section>
 
             <section id="flow" className="mt-8">
-              <SectionTitle>13. Flux de fluide</SectionTitle>
+              <SectionTitle>14. Flux de fluide</SectionTitle>
               <Body>
                 Bouton <strong className="text-[var(--text-primary)]">Flux d'eau</strong> (icône vagues) dans la toolbar —
                 visualise un écoulement (eau, huile ou air) traversant l'assemblage.
@@ -554,7 +760,7 @@ export function HelpPanel() {
             </section>
 
             <section id="ai-assistant" className="mt-8">
-              <SectionTitle>14. Assistant IA</SectionTitle>
+              <SectionTitle>15. Assistant IA</SectionTitle>
               <Body>
                 Bouton <strong className="text-[var(--text-primary)]">IA</strong> dans la toolbar — ouvre un panneau de chat
                 pour piloter la vue par commandes en français.
@@ -573,7 +779,7 @@ export function HelpPanel() {
             </section>
 
             <section id="ai-commands" className="mt-8">
-              <SectionTitle>15. Commandes IA</SectionTitle>
+              <SectionTitle>16. Commandes IA</SectionTitle>
               <Body>Décrivez une action en français courant - pas besoin de syntaxe spéciale.</Body>
               <SubTitle>Exemples par catégorie</SubTitle>
               <DataTable
@@ -581,6 +787,10 @@ export function HelpPanel() {
                 rows={[
                   ['Sélection', '« Sélectionne les vis M5 », « Sélectionne tout », « Désélectionne tout »'],
                   ['Vue éclatée', '« Éclate toutes les pièces à 50% », « Remonte l\'assemblage »'],
+                  [
+                    'Collision',
+                    '« Déplace le tube vers la droite jusqu\'à la collision », « Avance l\'arbre jusqu\'au contact », « Tourne le tube de 90° jusqu\'à la collision »',
+                  ],
                   ['Rotation', '« Fais tourner l\'arbre sur lui-même », « Tourne la flasque de 90° en Y »'],
                   ['Translation', '« Monte les vis de 50mm », « Descend la flasque de 40mm en 3 secondes »'],
                   ['Présentation', '« Lance une présentation lente de la pièce sélectionnée »'],
@@ -600,6 +810,11 @@ export function HelpPanel() {
               <List
                 items={['« Sélectionne les vis M5, monte-les de 50mm et colorie-les en rouge »']}
               />
+              <Body>
+                Les mots « collision », « contact », « butée » ou « jusqu'à ce qu'elle heurte » dans une commande de
+                déplacement ou de rotation arrêtent la pièce au premier contact. Sans distance donnée, la pièce avance
+                jusqu'à rencontrer une autre pièce.
+              </Body>
               <Tip>
                 Si l'IA ne trouve pas une pièce, elle suggère les noms disponibles dans le modèle chargé. Précisez le nom
                 exact si le résultat n'est pas celui attendu. Le zoom caméra, le plan de coupe et les mesures ne sont pas
@@ -608,7 +823,7 @@ export function HelpPanel() {
             </section>
 
             <section id="themes" className="mt-8">
-              <SectionTitle>16. Thèmes</SectionTitle>
+              <SectionTitle>17. Thèmes</SectionTitle>
               <Body>Trois boutons dans la barre de statut (bas droite) :</Body>
               <List
                 items={[
@@ -633,12 +848,12 @@ export function HelpPanel() {
             </section>
 
             <section id="shortcuts" className="mt-8">
-              <SectionTitle>17. Raccourcis clavier</SectionTitle>
+              <SectionTitle>18. Raccourcis clavier</SectionTitle>
               <DataTable
                 headers={['Touche', 'Action']}
                 rows={[
                   ['1-6', "Modes d'affichage"],
-                  ['Escape', 'Désélectionner / Quitter mode'],
+                  ['Escape', 'Désélectionner / Quitter mode / Quitter le plein écran'],
                   ['F', 'Vue Face'],
                   ['T', 'Vue Dessus'],
                   ['I', 'Vue Isométrique'],
@@ -648,15 +863,32 @@ export function HelpPanel() {
                   ['Ctrl+S', 'Enregistrer projet'],
                   ['Ctrl+P', 'Exporter PDF'],
                   ['? ou F1', "Ouvrir l'aide"],
+                  ['F11', "Plein écran de la vue 3D seule (application desktop) ; Échap pour quitter"],
                 ]}
               />
             </section>
 
             <section id="faq" className="mt-8">
-              <SectionTitle>18. Dépannage et FAQ</SectionTitle>
+              <SectionTitle>19. Dépannage et FAQ</SectionTitle>
               <Faq
                 q="Mon fichier STEP ne se charge pas"
-                a="Vérifiez l'extension .step/.stp. Les fichiers >50 Mo prennent du temps. Un indicateur de chargement s'affiche."
+                a="Vérifiez l'extension .step/.stp. Les fichiers >50 Mo prennent du temps. Un indicateur de chargement avec le temps écoulé s'affiche."
+              />
+              <Faq
+                q="Mon fichier STEP met beaucoup de temps à s'ouvrir"
+                a="Sur l'écran d'accueil, choisissez la qualité « Standard (rapide) » : la qualité « Très précis » peut demander plusieurs minutes sur un gros assemblage. Même en Standard, la première ouverture d'un assemblage de plusieurs dizaines de pièces prend quelques dizaines de secondes ; les ouvertures suivantes du même fichier sont quasi instantanées grâce au cache."
+              />
+              <Faq
+                q="J'ai déplacé ou modifié des pièces par erreur, comment revenir en arrière ?"
+                a="Cliquez sur « État d'origine » (barre d'outils, ligne 1) : toutes les modifications sont annulées et le modèle revient tel qu'à l'ouverture. Pour ne réinitialiser que les animations d'une pièce, utilisez « Réinitialiser cette pièce » dans le panneau ANIMATION."
+              />
+              <Faq
+                q="Comment quitter le plein écran ?"
+                a="Appuyez sur Échap, ou recliquez sur « Quitter le plein écran »."
+              />
+              <Faq
+                q="La poignée de déplacement de l'outil Collision n'apparaît pas"
+                a="Vérifiez qu'une pièce est sélectionnée et que la vue éclatée est remise à 0. Le message sur la ligne 3 de la barre d'outils indique ce qui manque."
               />
               <Faq
                 q="Je ne peux pas tourner la pièce"
@@ -664,11 +896,11 @@ export function HelpPanel() {
               />
               <Faq
                 q="Le plan de coupe montre un vide"
-                a="Rechargez la page. Essayez de changer d'axe puis revenez."
+                a="Rechargez la page. Essayez de changer d'axe puis revenez. Les réglages s'affichent avec le bouton « Plan de coupe » de la barre d'outils."
               />
               <Faq
                 q="Les mesures ne sont pas précises"
-                a="Utilisez le Smart Snapping (arêtes surlignées) plutôt que de cliquer sur les surfaces. Le snap utilise les données exactes STEP."
+                a="Utilisez le Smart Snapping (arêtes surlignées) plutôt que de cliquer sur les surfaces. Les cotes sont calculées sur le maillage : pour plus de fidélité, rouvrez le fichier avec la qualité « Fin » ou « Très précis"
               />
               <Faq
                 q="L'application est lente"
@@ -676,7 +908,7 @@ export function HelpPanel() {
               />
               <Faq
                 q="Comment partager avec un collègue ?"
-                a="Exportez un PDF. Pour une session interactive, envoyez le .pindi avec le STEP source."
+                a="Exportez un PDF. Pour une session interactive, envoyez simplement le .pindi : il contient le fichier source et s'ouvre seul."
               />
               <Faq
                 q="Fonctionne sur téléphone ?"
@@ -684,12 +916,12 @@ export function HelpPanel() {
               />
               <Faq
                 q="Comment changer entre mode jour et mode nuit ?"
-                a="Cliquez l'icône soleil/lune dans la toolbar (à gauche du bouton Aide) pour basculer instantanément. Votre choix est mémorisé pour vos prochaines visites - au tout premier chargement, l'application respecte le réglage clair/sombre de votre système. L'export PDF utilise toujours le mode jour pour les captures, quel que soit le mode actif, puis revient automatiquement à votre mode."
+                a="Cliquez l'icône soleil/lune dans la barre de statut (bas droite) pour basculer instantanément. Votre choix est mémorisé pour vos prochaines visites - au tout premier chargement, l'application respecte le réglage clair/sombre de votre système. L'export PDF utilise toujours le mode jour pour les captures, quel que soit le mode actif, puis revient automatiquement à votre mode."
               />
             </section>
 
             <section id="install" className="mt-8">
-              <SectionTitle>19. Installation PWA et Desktop</SectionTitle>
+              <SectionTitle>20. Installation PWA et Desktop</SectionTitle>
               <SubTitle>Application web installable (PWA)</SubTitle>
               <List
                 items={[
@@ -724,7 +956,7 @@ export function HelpPanel() {
                 PindiCADViewer — Puissance Mécanique et Précision 3D
               </p>
               <p className="mt-1">Projet Ferme Écologique Pindi — @fermeecopindi</p>
-              <p>Contact : fermeecopindi@gmail.com — Août 2026</p>
+              <p>Contact : fermeecopindi@gmail.com — Septembre 2026</p>
             </footer>
           </div>
         </div>

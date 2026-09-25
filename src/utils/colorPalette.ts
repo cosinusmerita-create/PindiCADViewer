@@ -20,6 +20,28 @@ export function getPaletteColor(index: number): THREE.Color {
   return new THREE.Color(`hsl(${hue}, 55%, 58%)`)
 }
 
+// One random "series" of palette colors for `count` shape groups, for the
+// "Couleur aléatoire" button. Same recipe as getPaletteColor (golden-angle hue
+// steps, so any two slots stay far apart in hue and neighbouring groups never
+// look alike) but with a random starting hue, random saturation/lightness for
+// the whole series, and a shuffled assignment of groups to slots - each click
+// therefore gives a genuinely different look, not just the same palette
+// rotated. The three ranges are kept inside a band that reads well on both
+// the dark and light canvases.
+export function getRandomPaletteColors(count: number): number[] {
+  const baseHue = Math.random() * 360
+  const saturation = 50 + Math.random() * 30
+  const lightness = 46 + Math.random() * 16
+  const slots = Array.from({ length: count }, (_, i) => i)
+  for (let i = count - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[slots[i], slots[j]] = [slots[j], slots[i]]
+  }
+  return slots.map((slot) =>
+    new THREE.Color(`hsl(${((baseHue + slot * 137.508) % 360).toFixed(1)}, ${saturation.toFixed(1)}%, ${lightness.toFixed(1)}%)`).getHex(),
+  )
+}
+
 // Default material for every part on load: uniform metallic gray, matching
 // the look of a standard CAD viewer (SolidWorks/eDrawings).
 export function createStandardMaterial(): THREE.MeshStandardMaterial {

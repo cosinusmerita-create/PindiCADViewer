@@ -1,10 +1,14 @@
 import { useEffect } from 'react'
+import { MenuBar } from './components/MenuBar'
+import { toggleViewerFullscreen } from './utils/fullscreen'
 import { Toolbar } from './components/Toolbar'
 import { Viewer3D } from './components/Viewer3D'
 import { FileDropZone } from './components/FileDropZone'
 import { ModelInfoPanel } from './components/ModelInfoPanel'
+import { PrintPieceInfo } from './components/PrintPieceInfo'
 import { ComponentTree } from './components/ComponentTree'
 import { ClippingPlane } from './components/ClippingPlane'
+import { PrintPanel } from './components/PrintPanel'
 import { StatusBar } from './components/StatusBar'
 import { ContextMenu } from './components/ContextMenu'
 import { PipetteCursor } from './components/PipetteCursor'
@@ -133,7 +137,7 @@ function App() {
       }
       if (ctrlOrCmd && e.key.toLowerCase() === 's') {
         e.preventDefault()
-        if (object) saveProjectFile(pushToast)
+        if (object) void saveProjectFile(pushToast)
         return
       }
       if (ctrlOrCmd && e.key.toLowerCase() === 'p') {
@@ -144,6 +148,14 @@ function App() {
       if (ctrlOrCmd && e.key.toLowerCase() === 'w') {
         e.preventDefault()
         if (object) requestCloseProject()
+        return
+      }
+
+      // Desktop app: F11 fullscreens just the 3D view, like the toolbar's Plein
+      // écran button (in a plain browser F11 stays the browser's own fullscreen).
+      if (e.key === 'F11' && window.electronAPI?.isElectron) {
+        e.preventDefault()
+        toggleViewerFullscreen()
         return
       }
 
@@ -235,20 +247,25 @@ function App() {
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-[var(--bg-app)] text-[var(--text-primary)]">
+      <MenuBar />
       <Toolbar />
+      <ClippingPlane />
       <div className="flex min-h-0 flex-1">
         <ComponentTree />
-        <main className="relative min-h-0 flex-1">
+        <PrintPanel />
+        {/* id: target of the toolbar's fullscreen button (see ViewActions.tsx) -
+            only this stage goes fullscreen, not the toolbar/panels around it. */}
+        <main id="viewer-stage" className="relative min-h-0 flex-1 bg-[var(--bg-app)]">
           <FileDropZone>
             <Viewer3D />
           </FileDropZone>
           <ModelInfoPanel />
+          <PrintPieceInfo />
           <MeasurementsPanel />
         </main>
         <AnimationPanel />
         <DimensionSheetPanel />
       </div>
-      <ClippingPlane />
       <StatusBar />
       <ContextMenu />
       <PipetteCursor />

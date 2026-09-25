@@ -3,6 +3,7 @@ import type {
   ComponentNode,
   DiameterGroup,
   DimensionReport,
+  AxisLevel,
   HeightLevel,
   PitchCircleInfo,
   TopSegment,
@@ -119,7 +120,10 @@ function clusterByAxisLine(circles: RawCircle[]): RawCircle[] {
     const center = new THREE.Vector3()
     for (const c of centerSource) center.add(c.center)
     center.divideScalar(centerSource.length)
-    const radius = cluster.reduce((sum, c) => sum + c.radius, 0) / cluster.length
+    // Same for the radius: a patch's is a fit to the tessellated wall, a
+    // hair small (45.96 for a real Ø46 bore) - averaged in, it turned every
+    // exact rim into "Ø 45.98".
+    const radius = centerSource.reduce((sum, c) => sum + c.radius, 0) / centerSource.length
     const concave = cluster.some((c) => c.concave === true)
       ? true
       : cluster.some((c) => c.concave === false)
@@ -153,7 +157,9 @@ export function extractDiameterGroups(
 
   const groups: DiameterGroup[] = radiusBuckets.map((bucket) => {
     const instances = clusterByAxisLine(bucket)
-    const radius = instances.reduce((sum, i) => sum + i.radius, 0) / instances.length
+    const exactInstances = instances.filter((i) => i.fromEdge)
+    const radiusSource = exactInstances.length > 0 ? exactInstances : instances
+    const radius = radiusSource.reduce((sum, i) => sum + i.radius, 0) / radiusSource.length
     const concave = instances.some((i) => i.concave === true)
       ? true
       : instances.some((i) => i.concave === false)
@@ -254,24 +260,43 @@ export function detectPitchCircle(group: DiameterGroup): PitchCircleInfo | null 
 
 const HEIGHT_LEVEL_TOLERANCE_MM = 0.05
 
-// Buckets every triangle whose normal points along `verticalAxis` (a flat,
-// "horizontal" face - a shoulder, a top or bottom) by its position along
-// that axis, weighted by triangle area so a real structural step shows up
-// as a strong peak and a stray sliver (a chamfer cap, a fillet's flat top)
-// doesn't. Levels within tolerance of each other are merged, giving the
-// ordered set of distinct Y-levels the part actually steps through.
-function extractVerticalLevels(
+// Every distinct planar face level along one WORLD axis: triangles whose
+// normal points exactly along the axis (a flat face - a shoulder, a wall, a
+// top or bottom) are bucketed by their world coordinate on it, weighted by
+// area so a real face shows up and a stray sliver doesn't, and each level
+// keeps the world extents of its faces so the 3D cotes can hang their
+// extension lines off the actual geometry. World space, not the mesh's own
+// local coordinates: a STEP assembly's parts are positioned by their
+// matrices, and the cotes are drawn against the world bounding box.
+// A tessellated cylinder always has facets facing the axis EXACTLY (the
+// one at 0°), so on a round part the normal test alone turned the facets of
+// every diameter into fake "faces" and a comb of bogus cotes. Two guards:
+// triangles already identified as part of a cylindrical surface patch (see
+// surfacePatches.ts) are skipped, and a level must carry a real share of the
+// part's whole surface - a lone facet strip doesn't; this also covers STL
+// meshes, whose unindexed geometry gets no patch analysis.
+const AXIS_NORMAL_MIN = 0.9999
+const MIN_LEVEL_SHARE_OF_SURFACE = 0.005
+
+function extractAxisLevels(
   meshes: THREE.Mesh[],
-  verticalAxis: 'x' | 'y' | 'z',
+  axis: 'x' | 'y' | 'z',
+  edgeData: Map<string, MeshEdgeData>,
   tolerance = HEIGHT_LEVEL_TOLERANCE_MM,
-): number[] {
-  const buckets = new Map<number, number>()
+): AxisLevel[] {
+  const buckets = new Map<number, AxisLevel>()
   const a = new THREE.Vector3()
   const b = new THREE.Vector3()
   const c = new THREE.Vector3()
   const normal = new THREE.Vector3()
+  const edge = new THREE.Vector3()
+  let totalArea = 0
+  let totalSurface = 0
 
   for (const mesh of meshes) {
+    mesh.updateWorldMatrix(true, false)
+    const nodeId = mesh.userData.nodeId as string | undefined
+    const facePatch = nodeId ? edgeData.get(nodeId)?.surfacePatches.facePatch : undefined
     const geometry = mesh.geometry
     const position = geometry.attributes.position
     if (!position) continue
@@ -282,39 +307,51 @@ function extractVerticalLevels(
       const i0 = index ? index.getX(t * 3) : t * 3
       const i1 = index ? index.getX(t * 3 + 1) : t * 3 + 1
       const i2 = index ? index.getX(t * 3 + 2) : t * 3 + 2
-      a.fromBufferAttribute(position, i0)
-      b.fromBufferAttribute(position, i1)
-      c.fromBufferAttribute(position, i2)
-      normal.subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a))
+      a.fromBufferAttribute(position, i0).applyMatrix4(mesh.matrixWorld)
+      b.fromBufferAttribute(position, i1).applyMatrix4(mesh.matrixWorld)
+      c.fromBufferAttribute(position, i2).applyMatrix4(mesh.matrixWorld)
+      normal.subVectors(b, a).cross(edge.subVectors(c, a))
       const area = normal.length() / 2
       if (area < 1e-9) continue
+      totalSurface += area
       normal.normalize()
+      if (Math.abs(normal[axis]) < AXIS_NORMAL_MIN) continue
+      if (facePatch && facePatch[t] >= 0) continue
 
-      const normalComponent = verticalAxis === 'x' ? normal.x : verticalAxis === 'y' ? normal.y : normal.z
-      if (Math.abs(normalComponent) < 0.95) continue
-
-      const avgPos =
-        verticalAxis === 'x'
-          ? (a.x + b.x + c.x) / 3
-          : verticalAxis === 'y'
-            ? (a.y + b.y + c.y) / 3
-            : (a.z + b.z + c.z) / 3
-      const key = Math.round(avgPos / tolerance) * tolerance
-      buckets.set(key, (buckets.get(key) ?? 0) + area)
+      totalArea += area
+      const key = Math.round((a[axis] + b[axis] + c[axis]) / 3 / tolerance)
+      let level = buckets.get(key)
+      if (!level) {
+        level = { pos: 0, min: a.clone(), max: a.clone(), area: 0 }
+        buckets.set(key, level)
+      }
+      level.pos += ((a[axis] + b[axis] + c[axis]) / 3) * area
+      level.area += area
+      for (const v of [a, b, c]) {
+        level.min.min(v)
+        level.max.max(v)
+      }
     }
   }
 
-  const totalArea = [...buckets.values()].reduce((sum, area) => sum + area, 0)
-  const significant = [...buckets.entries()]
-    .filter(([, area]) => area > totalArea * 0.01)
-    .map(([level]) => level)
-    .sort((x, y) => x - y)
-
-  const merged: number[] = []
-  for (const level of significant) {
-    if (merged.length === 0 || level - merged[merged.length - 1] > tolerance * 2) merged.push(level)
+  // Neighbouring buckets are one face split by rounding: merge them first,
+  // THEN drop the insignificant ones, so a split face counts in full.
+  const merged: AxisLevel[] = []
+  for (const [, level] of [...buckets.entries()].sort((x, y) => x[0] - y[0])) {
+    const pos = level.pos / level.area
+    const last = merged[merged.length - 1]
+    if (last && pos - last.pos / last.area <= tolerance * 2) {
+      last.pos += level.pos
+      last.area += level.area
+      last.min.min(level.min)
+      last.max.max(level.max)
+    } else {
+      merged.push({ ...level })
+    }
   }
   return merged
+    .filter((level) => level.area > totalArea * 0.01 && level.area > totalSurface * MIN_LEVEL_SHARE_OF_SURFACE)
+    .map((level) => ({ ...level, pos: level.pos / level.area }))
 }
 
 function buildHeightBreakdown(levels: number[]): HeightLevel[] {
@@ -409,8 +446,12 @@ export function buildDimensionReport(
 
   const pitchCircle = diameterGroups.map((g) => detectPitchCircle(g)).find((p): p is PitchCircleInfo => p !== null) ?? null
 
-  const verticalLevels = extractVerticalLevels(meshes, 'y')
-  const heights = buildHeightBreakdown(verticalLevels)
+  const axisLevels = {
+    x: extractAxisLevels(meshes, 'x', edgeData),
+    y: extractAxisLevels(meshes, 'y', edgeData),
+    z: extractAxisLevels(meshes, 'z', edgeData),
+  }
+  const heights = buildHeightBreakdown(axisLevels.y.map((level) => level.pos))
   const topSegments = extractTopSegments(node, edgeData)
 
   return {
@@ -424,6 +465,7 @@ export function buildDimensionReport(
     centralBoreGroupIndex,
     pitchCircle,
     heights,
+    axisLevels,
     topSegments,
     volumeMm3,
     surfaceMm2,

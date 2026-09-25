@@ -16,8 +16,8 @@ export function CloseConfirmDialog() {
 
   const cancel = () => setShowCloseConfirm(false)
 
-  const saveAndClose = () => {
-    saveProjectFile(pushToast)
+  const saveAndClose = async () => {
+    await saveProjectFile(pushToast)
     clearModel()
   }
 

@@ -21,7 +21,7 @@
   --shadow: rgba(0, 0, 0, 0.5);
   --scrollbar-bg: #1a1a2e;
   --scrollbar-thumb: #333355;
-  --canvas-bg: #1a1a2e;
+  --canvas-bg: #0a0c12;
   --edge-color: #333333;
   --grid-color: #333344;
   --measurement-text: #ffffff;
@@ -95,6 +95,15 @@ body,
   margin: 0;
 }
 
+/* The app is a fixed full-window layout whose panels scroll internally; the
+   page itself must never scroll. Without this, any absolutely positioned
+   descendant that escapes its scroll container (e.g. the component tree's
+   hidden color inputs) stretches the document and cuts the layout off. */
+html,
+body {
+  overflow: hidden;
+}
+
 body {
   background-color: var(--bg-app);
   color: var(--text-primary);
@@ -157,4 +166,14 @@ body {
   header button {
     min-height: 44px;
   }
+}
+
+/* Desktop app: the top menu bar doubles as the window's title bar (the OS one
+   is hidden - see electron/main.js), so the bar is a drag region and every
+   interactive child inside it opts back out. No effect in a plain browser. */
+.app-drag {
+  -webkit-app-region: drag;
+}
+.app-no-drag {
+  -webkit-app-region: no-drag;
 }

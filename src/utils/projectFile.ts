@@ -3,7 +3,10 @@ import type {
   Annotation,
   CameraState,
   ClippingAxis,
+  ColorMode,
   DisplayMode,
+  EmbeddedSource,
+  GroupRecord,
   Measurement,
   ProjectFile,
   SerializedAnnotation,
@@ -78,6 +81,7 @@ export function serializeMeasurement(m: Measurement): SerializedMeasurement {
     startAngle: m.startAngle,
     angularSpan: m.angularSpan,
     approx: m.approx,
+    dimLine: m.dimLine ? [vec3ToTuple(m.dimLine[0]), vec3ToTuple(m.dimLine[1])] : null,
   }
 }
 
@@ -94,6 +98,7 @@ export function deserializeMeasurement(id: string, m: SerializedMeasurement): Me
     startAngle: m.startAngle,
     angularSpan: m.angularSpan,
     approx: m.approx,
+    dimLine: m.dimLine ? [tupleToVec3(m.dimLine[0]), tupleToVec3(m.dimLine[1])] : null,
   }
 }
 
@@ -114,11 +119,18 @@ export interface BuildProjectFileInput {
   colors: Record<string, string>
   visibility: Record<string, boolean>
   opacity: Record<string, number>
+  names?: Record<string, string>
+  groups?: GroupRecord[]
+  colorMode?: ColorMode
+  paletteColors?: Record<string, number>
+  selection?: string[]
+  print?: Record<string, unknown>
   measurements: Measurement[]
   clippingEnabled: boolean
   clippingAxis: ClippingAxis
   clippingPosition: number
   annotations: Annotation[]
+  embeddedSource?: EmbeddedSource
 }
 
 export function buildProjectFile(input: BuildProjectFileInput): ProjectFile {
@@ -133,15 +145,68 @@ export function buildProjectFile(input: BuildProjectFileInput): ProjectFile {
     colors: input.colors,
     visibility: input.visibility,
     opacity: input.opacity,
+    ...(input.names && Object.keys(input.names).length > 0 ? { names: input.names } : {}),
+    ...(input.groups && input.groups.length > 0 ? { groups: input.groups } : {}),
+    ...(input.colorMode ? { colorMode: input.colorMode } : {}),
+    ...(input.paletteColors && Object.keys(input.paletteColors).length > 0 ? { paletteColors: input.paletteColors } : {}),
+    ...(input.selection && input.selection.length > 0 ? { selection: input.selection } : {}),
+    ...(input.print ? { print: input.print } : {}),
     measurements: input.measurements.map(serializeMeasurement),
     clippingPlane: { active: input.clippingEnabled, axis: input.clippingAxis, position: input.clippingPosition },
     animations: [],
     annotations: input.annotations.map(serializeAnnotation),
+    ...(input.embeddedSource ? { embeddedSource: input.embeddedSource } : {}),
   }
 }
 
 export function serializeProjectFile(project: ProjectFile): string {
   return JSON.stringify(project, null, 2)
+}
+
+function isEmbeddedSource(value: unknown): value is EmbeddedSource {
+  const v = value as EmbeddedSource | undefined
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    typeof v.name === 'string' &&
+    typeof v.data === 'string' &&
+    (v.encoding === 'gzip-base64' || v.encoding === 'base64')
+  )
+}
+
+// Keeps only well-formed id -> non-empty string entries, so a hand-edited or
+// corrupted "names" block can never blank out or break the tree.
+function parseNames(value: unknown): Record<string, string> {
+  const out: Record<string, string> = {}
+  if (typeof value !== 'object' || value === null) return out
+  for (const [id, name] of Object.entries(value)) {
+    if (typeof name === 'string' && name.trim() !== '') out[id] = name
+  }
+  return out
+}
+
+// Well-formed group records only (an id, a name and a list of string ids), so a
+// damaged "groups" block is dropped record by record instead of failing the open.
+function parseGroups(value: unknown): GroupRecord[] {
+  if (!Array.isArray(value)) return []
+  return value.filter(
+    (g): g is GroupRecord =>
+      typeof g === 'object' &&
+      g !== null &&
+      typeof g.id === 'string' &&
+      typeof g.name === 'string' &&
+      Array.isArray(g.childIds) &&
+      g.childIds.every((id: unknown) => typeof id === 'string'),
+  )
+}
+
+function parsePaletteColors(value: unknown): Record<string, number> | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const out: Record<string, number> = {}
+  for (const [key, color] of Object.entries(value)) {
+    if (typeof color === 'number' && Number.isFinite(color)) out[key] = color
+  }
+  return Object.keys(out).length > 0 ? out : undefined
 }
 
 // Minimal shape validation - not a full schema check, just enough to reject
@@ -169,10 +234,17 @@ export function parseProjectFile(text: string): ProjectFile {
     colors: data.colors ?? {},
     visibility: data.visibility ?? {},
     opacity: data.opacity ?? {},
+    names: parseNames(data.names),
+    groups: parseGroups(data.groups),
+    colorMode: data.colorMode === 'palette' || data.colorMode === 'standard' ? data.colorMode : undefined,
+    paletteColors: parsePaletteColors(data.paletteColors),
+    selection: Array.isArray(data.selection) ? data.selection.filter((id: unknown) => typeof id === 'string') : undefined,
+    print: data.print && typeof data.print === 'object' && !Array.isArray(data.print) ? data.print : undefined,
     measurements: data.measurements ?? [],
     clippingPlane: data.clippingPlane ?? { active: false, axis: 'x', position: 0 },
     animations: data.animations ?? [],
     annotations: data.annotations ?? [],
+    embeddedSource: isEmbeddedSource(data.embeddedSource) ? data.embeddedSource : undefined,
   }
 }
 

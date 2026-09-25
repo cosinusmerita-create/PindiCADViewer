@@ -2,11 +2,13 @@ import { useCallback } from 'react'
 import * as THREE from 'three'
 import { useModelStore } from './useModelState'
 import { useToastStore } from './useToastStore'
-import { loadStepFile } from '../utils/stepLoader'
+import { loadCachedStep, loadStepFile } from '../utils/stepLoader'
+import { decodeSource } from '../utils/embeddedSource'
 import { loadStlFile } from '../utils/stlLoader'
 import { loadObjFile } from '../utils/objLoader'
-import { buildEdgeDataMap, tagMeshesWithNodeIds } from '../utils/componentTree'
+import { LazyEdgeDataMap, prewarmEdgeData, tagMeshesWithNodeIds } from '../utils/componentTree'
 import { computeFileHash, parseProjectFile } from '../utils/projectFile'
+import type { LoadResult } from '../types/model'
 
 const GEOMETRY_EXTENSIONS = ['step', 'stp', 'stl', 'obj']
 export const OPEN_FILE_ACCEPT = '.step,.stp,.stl,.obj,.pindi'
@@ -42,6 +44,10 @@ function promptForSourceFile(sourceFile: string): Promise<File | null> {
   })
 }
 
+// Background edge analysis of the previously loaded model, stopped when a
+// new one replaces it.
+let cancelPrewarm: (() => void) | null = null
+
 export function useFileLoader() {
   const setModel = useModelStore((s) => s.setModel)
   const setLoading = useModelStore((s) => s.setLoading)
@@ -49,6 +55,24 @@ export function useFileLoader() {
   const setSourceFileHash = useModelStore((s) => s.setSourceFileHash)
   const applyProjectFile = useModelStore((s) => s.applyProjectFile)
   const pushToast = useToastStore((s) => s.pushToast)
+
+  const setSourceFile = useModelStore((s) => s.setSourceFile)
+
+  // Puts a freshly built model on screen and records where it came from.
+  const presentResult = useCallback(
+    (result: LoadResult, fileName: string, hash: string, sourceFile: File | null) => {
+      tagMeshesWithNodeIds(result.tree)
+      const boundingBox = new THREE.Box3().setFromObject(result.object)
+      const edgeData = new LazyEdgeDataMap(result.tree)
+      setModel(result.object, fileName, Math.round(result.triangleCount), boundingBox, result.tree, edgeData)
+      setSourceFileHash(hash)
+      setSourceFile(sourceFile)
+      if (result.fromCache) pushToast('Ouverture rapide : modèle chargé depuis le cache')
+      cancelPrewarm?.()
+      cancelPrewarm = prewarmEdgeData(edgeData)
+    },
+    [setModel, setSourceFileHash, setSourceFile, pushToast],
+  )
 
   const loadGeometryFile = useCallback(
     async (file: File): Promise<string | null> => {
@@ -65,15 +89,11 @@ export function useFileLoader() {
         const hash = await computeFileHash(await file.arrayBuffer())
 
         let result
-        if (ext === 'step' || ext === 'stp') result = await loadStepFile(file)
+        if (ext === 'step' || ext === 'stp') result = await loadStepFile(file, hash)
         else if (ext === 'stl') result = await loadStlFile(file)
         else result = await loadObjFile(file)
 
-        tagMeshesWithNodeIds(result.tree)
-        const boundingBox = new THREE.Box3().setFromObject(result.object)
-        const edgeData = buildEdgeDataMap(result.tree)
-        setModel(result.object, file.name, Math.round(result.triangleCount), boundingBox, result.tree, edgeData)
-        setSourceFileHash(hash)
+        presentResult(result, file.name, hash, file)
         return hash
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Erreur lors du chargement du fichier.')
@@ -82,7 +102,7 @@ export function useFileLoader() {
         setLoading(false)
       }
     },
-    [setModel, setLoading, setError, setSourceFileHash],
+    [setLoading, setError, presentResult],
   )
 
   // A .pindi project only stores settings, not geometry - it needs the
@@ -108,13 +128,38 @@ export function useFileLoader() {
         const currentHash = useModelStore.getState().sourceFileHash
 
         if (currentHash !== project.sourceFileHash) {
-          setLoading(false)
-          const picked = await promptForSourceFile(project.sourceFile)
-          if (!picked) return
-          const loadedHash = await loadGeometryFile(picked)
-          if (!loadedHash) return
-          if (loadedHash !== project.sourceFileHash) {
-            pushToast('Attention : le fichier sélectionné ne correspond pas exactement au fichier source du projet.')
+          // 1. The source file carried inside the .pindi - the project is then
+          //    fully self-contained.
+          let loadedHash: string | null = null
+          if (project.embeddedSource) {
+            try {
+              loadedHash = await loadGeometryFile(await decodeSource(project.embeddedSource))
+            } catch {
+              pushToast('Le fichier source intégré au projet est illisible.')
+            }
+          }
+
+          // 2. A project saved without its source: if that exact file was
+          //    opened on this computer before, its parsed model is still in
+          //    the cache and identifies by content hash alone.
+          if (!loadedHash && project.sourceFileHash) {
+            const cached = await loadCachedStep(project.sourceFileHash, project.sourceFile || 'modele.step')
+            if (cached) {
+              presentResult(cached, project.sourceFile || 'modele.step', project.sourceFileHash, null)
+              loadedHash = project.sourceFileHash
+            }
+          }
+
+          // 3. Last resort, as before: ask for the source file.
+          if (!loadedHash) {
+            setLoading(false)
+            const picked = await promptForSourceFile(project.sourceFile)
+            if (!picked) return
+            loadedHash = await loadGeometryFile(picked)
+            if (!loadedHash) return
+            if (loadedHash !== project.sourceFileHash) {
+              pushToast('Attention : le fichier sélectionné ne correspond pas exactement au fichier source du projet.')
+            }
           }
         }
 
@@ -126,7 +171,7 @@ export function useFileLoader() {
         setLoading(false)
       }
     },
-    [setLoading, setError, loadGeometryFile, applyProjectFile, pushToast],
+    [setLoading, setError, loadGeometryFile, presentResult, applyProjectFile, pushToast],
   )
 
   const loadFile = useCallback(

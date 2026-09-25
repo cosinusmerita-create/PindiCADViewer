@@ -18,8 +18,19 @@ export type AiIntent =
   | { kind: 'resetAll' }
   | { kind: 'explode'; factor: number; target: AiTarget }
   | { kind: 'rotateContinuous'; target: AiTarget; axis: AiAxis; speed: number; direction: 1 | -1 }
-  | { kind: 'rotateAngle'; target: AiTarget; axis: AiAxis; angle: number; duration: number }
-  | { kind: 'translate'; target: AiTarget; axis: AiAxis; distance: number; duration: number }
+  | { kind: 'rotateAngle'; target: AiTarget; axis: AiAxis; angle: number; duration: number; stopOnCollision: boolean }
+  | {
+      kind: 'translate'
+      target: AiTarget
+      axis: AiAxis
+      distance: number
+      duration: number
+      stopOnCollision: boolean
+      // "Déplace X jusqu'à la collision" with no explicit distance: the store
+      // swaps in a travel long enough to cross the whole model, since the
+      // collision itself is what ends the move.
+      openEnded: boolean
+    }
   | { kind: 'opacity'; target: AiTarget; opacity: number }
   | { kind: 'color'; target: AiTarget; color: string }
   | { kind: 'resetColor'; target: AiTarget }
@@ -171,6 +182,16 @@ const STOPWORDS = new Set([
   'etape',
   'etapes',
   'pas',
+  // Collision phrasing ("jusqu'à la collision", "au contact") - not part names.
+  'avance',
+  'pousse',
+  'jusqu',
+  'collision',
+  'collisions',
+  'contact',
+  'butee',
+  'heurte',
+  'obstacle',
 ])
 
 function stripAccents(text: string): string {
@@ -198,6 +219,11 @@ function extractDirection(text: string): { axis: AiAxis; sign: 1 | -1 } | null {
   if (/vers l['’]avant|en avant/.test(text)) return { axis: 'z', sign: 1 }
   if (/vers l['’]arriere|\brecule\b/.test(text)) return { axis: 'z', sign: -1 }
   return null
+}
+
+// "jusqu'à la collision", "au contact", "jusqu'à ce qu'elle heurte"...
+function wantsStopOnCollision(text: string): boolean {
+  return /collision|contact|butee|heurte|obstacle|jusqu.{1,3}a ce qu/.test(text)
 }
 
 function extractFluid(text: string): FlowFluidType {
@@ -398,7 +424,14 @@ export function parseAiCommand(rawText: string): AiIntent {
   const angle = extractNumber(text, '(?:deg|°|degres?)')
   if (angle !== null && /tourn/.test(text)) {
     const duration = extractNumber(text, '(?:s|sec|secondes?)') ?? 2
-    return { kind: 'rotateAngle', target: extractTarget(text) ?? 'selected', axis: extractAxis(text) ?? 'y', angle, duration }
+    return {
+      kind: 'rotateAngle',
+      target: extractTarget(text) ?? 'selected',
+      axis: extractAxis(text) ?? 'y',
+      angle,
+      duration,
+      stopOnCollision: wantsStopOnCollision(text),
+    }
   }
 
   if (/tourn.*(sur elle.?meme|sur lui.?meme)|rotation continue|fait[\s-]*(le|la|les)?[\s-]*tourner|fais[\s-]*(le|la|les)?[\s-]*tourner/.test(text)) {
@@ -416,14 +449,26 @@ export function parseAiCommand(rawText: string): AiIntent {
   // onto a signed X/Y/Z axis - see MAPPING DES TERMES UTILISATEUR ci-dessus.
   const direction = extractDirection(text)
   const distance = extractNumber(text, 'mm')
-  if ((distance !== null || direction) && /\b(monte|descend|deplace|translate|remonte|retire|sort|enleve)\b/.test(text)) {
+  const stopOnCollision = wantsStopOnCollision(text)
+  if (
+    (distance !== null || direction || stopOnCollision) &&
+    /\b(monte|descend|deplace|translate|remonte|retire|sort|enleve|avance|pousse)\b/.test(text)
+  ) {
     const duration = extractNumber(text, '(?:s|sec|secondes?)') ?? 2
     const axis = extractAxis(text) ?? direction?.axis ?? 'y'
     // No explicit "Nmm" given ("Retire les vis vers le haut") - a sensible
     // default travel distance, signed by whichever direction word matched.
     const magnitude = distance !== null ? Math.abs(distance) : 50
     const signed = direction ? magnitude * direction.sign : /\bdescend\b/.test(text) ? -magnitude : magnitude
-    return { kind: 'translate', target: extractTarget(text) ?? 'selected', axis, distance: signed, duration }
+    return {
+      kind: 'translate',
+      target: extractTarget(text) ?? 'selected',
+      axis,
+      distance: signed,
+      duration,
+      stopOnCollision,
+      openEnded: stopOnCollision && distance === null,
+    }
   }
 
   // Checked BEFORE the plain "select" trigger below - "deselectionne"
@@ -447,7 +492,7 @@ export function parseAiCommand(rawText: string): AiIntent {
 // les de 50mm et colorie-les en rouge") - without this, splitting on every
 // "et" would also break apart plain target lists ("le manchon et le tube").
 const CLAUSE_ACTION_START =
-  /^(mets?|colorie?|colore|applique|peins?|rends?|cache|masque|affiche|montre|eclate|tourne|fais|rotation|monte|descend|deplace|bouge|pousse|retire|recule|selectionne|deselectionne|choisis|prends|demonte|remonte|arrete|stop|reset|remets|trace|efface|supprime|accelere|ralentis|inverse|change|zoom|rapproche|coupe|active|desactive|mesure|donne|vue)\b/
+  /^(mets?|colorie?|colore|applique|peins?|rends?|cache|masque|affiche|montre|eclate|tourne|fais|rotation|monte|descend|deplace|bouge|pousse|avance|retire|recule|selectionne|deselectionne|choisis|prends|demonte|remonte|arrete|stop|reset|remets|trace|efface|supprime|accelere|ralentis|inverse|change|zoom|rapproche|coupe|active|desactive|mesure|donne|vue)\b/
 
 // Splits one raw message into separate command clauses on ","/";"/" puis "
 // (always) and on " et " (only when the word right after it is itself a

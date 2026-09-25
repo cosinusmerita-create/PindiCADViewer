@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 import type { ComponentNode, LoadResult } from '../types/model'
-import { createStandardMaterial, getPaletteColor } from './colorPalette'
+import { createStandardMaterial } from './colorPalette'
+import { identifyParts } from './partIdentity'
 
 export async function loadObjFile(file: File): Promise<LoadResult> {
   const text = await file.text()
@@ -14,20 +15,18 @@ export async function loadObjFile(file: File): Promise<LoadResult> {
   })
 
   let triangleCount = 0
-  meshes.forEach((mesh, i) => {
+  meshes.forEach((mesh) => {
     const material = createStandardMaterial()
     mesh.material = material
     mesh.userData.primaryMaterial = material
-    if (meshes.length > 1) {
-      mesh.userData.paletteColor = getPaletteColor(i).getHex()
-    }
     if (!mesh.geometry.attributes.normal) {
       mesh.geometry.computeVertexNormals()
     }
-    if (!mesh.name) mesh.name = `Partie ${i + 1}`
     const index = mesh.geometry.getIndex()
     triangleCount += index ? index.count / 3 : mesh.geometry.attributes.position.count / 3
   })
+
+  identifyParts(meshes)
 
   const tree: ComponentNode =
     meshes.length === 1

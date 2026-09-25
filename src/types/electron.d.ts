@@ -9,6 +9,8 @@ declare global {
       onOpenFile: (callback: (filePath: string) => void) => void
       readFile: (filePath: string) => Promise<Uint8Array<ArrayBuffer>>
       isElectron: true
+      // Recolors the OS window buttons overlaid on the custom title bar.
+      setTitleBarOverlay?: (options: { color: string; symbolColor: string }) => void
     }
   }
 }

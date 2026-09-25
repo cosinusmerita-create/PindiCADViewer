@@ -30,6 +30,11 @@ export interface Measurement {
   startAngle: number | null
   angularSpan: number | null
   approx: boolean
+  // Where the cote line itself is drawn, when it isn't simply point1 ->
+  // point2: a drawing-style cote pulled OUTSIDE the part, joined to the
+  // measured points by extension lines (e.g. the height between two
+  // coaxial rims, see resolveGapMeasurement). Absent on older measurements.
+  dimLine?: [THREE.Vector3, THREE.Vector3] | null
 }
 
 export interface RotationAxes {
@@ -54,6 +59,9 @@ export interface TimedAnimationState {
   mode: TimedAnimationMode
   targetValue: number // degrees for a rotation, millimeters for a translation
   duration: number // seconds
+  // Stop the motion (and flag the pair red) at the first NEW contact with
+  // another part - see collision.ts.
+  stopOnCollision?: boolean
   active: boolean
   // Bumped every time a new timed animation is (re)started, so the runtime
   // loop can tell "still the same run in progress" from "the user just
@@ -113,6 +121,16 @@ export interface TopSegment {
   b: THREE.Vector3
 }
 
+// One planar face level along a world axis (every flat face whose normal
+// points along that axis, at that coordinate), with the world-space extents
+// of those faces - where the auto-dimension extension lines start from.
+export interface AxisLevel {
+  pos: number
+  min: THREE.Vector3
+  max: THREE.Vector3
+  area: number
+}
+
 export interface DimensionReport {
   nodeId: string
   name: string
@@ -124,6 +142,7 @@ export interface DimensionReport {
   centralBoreGroupIndex: number | null
   pitchCircle: PitchCircleInfo | null
   heights: HeightLevel[]
+  axisLevels: { x: AxisLevel[]; y: AxisLevel[]; z: AxisLevel[] }
   topSegments: TopSegment[]
   volumeMm3: number
   surfaceMm2: number
@@ -164,6 +183,7 @@ export interface SerializedMeasurement {
   startAngle: number | null
   angularSpan: number | null
   approx: boolean
+  dimLine?: [[number, number, number], [number, number, number]] | null
 }
 
 export interface SerializedAnnotation {
@@ -182,6 +202,23 @@ export interface ProjectClippingState {
 // every viewer setting that isn't part of the source CAD geometry itself,
 // keyed back to that source file by name and content hash so a reload can
 // tell whether the file the user re-selects is actually the right one.
+// The CAD file a project was saved from, carried inside the .pindi so the
+// project opens on its own (see embeddedSource.ts).
+export interface EmbeddedSource {
+  name: string
+  size: number
+  encoding: 'gzip-base64' | 'base64'
+  data: string
+}
+
+// A user-made group as saved in a .pindi file: the group's own id/name plus the
+// ids of its direct children (parts or other groups), in tree order.
+export interface GroupRecord {
+  id: string
+  name: string
+  childIds: string[]
+}
+
 export interface ProjectFile {
   version: string
   date: string
@@ -193,10 +230,24 @@ export interface ProjectFile {
   colors: Record<string, string>
   visibility: Record<string, boolean>
   opacity: Record<string, number>
+  // Names the user gave to parts/groups (node id -> name). Absent in projects
+  // saved before renaming existed.
+  names?: Record<string, string>
+  // Groups made with "Grouper" (see GroupRecord); rebuilt on open.
+  groups?: GroupRecord[]
+  // "Couleurs par pièce" on/off and, after "Couleur aléatoire", the series
+  // (shape-group index -> 0xRRGGBB) that was on screen when saving.
+  colorMode?: ColorMode
+  paletteColors?: Record<string, number>
+  // Pièces sélectionnées au moment de l'enregistrement (ids de noeuds).
+  selection?: string[]
+  // Réglages du module Impression 3D (voir usePrintStore.snapshotPrintState).
+  print?: Record<string, unknown>
   measurements: SerializedMeasurement[]
   clippingPlane: ProjectClippingState
   animations: unknown[]
   annotations: SerializedAnnotation[]
+  embeddedSource?: EmbeddedSource
 }
 
 export interface ComponentNode {
@@ -215,4 +266,6 @@ export interface LoadResult {
   object: THREE.Group
   triangleCount: number
   tree: ComponentNode
+  // True when a STEP model came from the persistent mesh cache (no parse).
+  fromCache?: boolean
 }

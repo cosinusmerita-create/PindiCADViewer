@@ -1,5 +1,3 @@
-import { useState } from 'react'
-import { ChevronDown, ChevronUp, Scissors } from 'lucide-react'
 import { useModelStore } from '../hooks/useModelState'
 import type { ClippingAxis } from '../types/model'
 
@@ -10,7 +8,7 @@ const AXES: { id: ClippingAxis; label: string }[] = [
 ]
 
 export function ClippingPlane() {
-  const [collapsed, setCollapsed] = useState(true)
+  const panelOpen = useModelStore((s) => s.clippingPanelOpen)
   const object = useModelStore((s) => s.object)
   const boundingBox = useModelStore((s) => s.boundingBox)
   const clippingEnabled = useModelStore((s) => s.clippingEnabled)
@@ -31,23 +29,14 @@ export function ClippingPlane() {
     }
   }
 
-  return (
-    <div className="shrink-0 border-t border-[var(--border-light)] bg-[var(--bg-panel)]">
-      <button
-        onClick={() => setCollapsed((v) => !v)}
-        className="flex w-full items-center gap-2 px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-slate-500 transition-colors hover:text-slate-300"
-      >
-        <Scissors size={14} />
-        Plan de coupe
-        {collapsed ? (
-          <ChevronUp size={14} className="ml-auto" />
-        ) : (
-          <ChevronDown size={14} className="ml-auto" />
-        )}
-      </button>
+  // Opened/closed from the "Plan de coupe" button in the toolbar (see
+  // ViewActions.tsx); this strip only holds the controls.
+  if (!panelOpen) return null
 
-      {!collapsed && (
-        <div className="flex flex-wrap items-center gap-4 px-4 pb-3">
+  return (
+    <div className="shrink-0 border-b border-[var(--border-light)] bg-[var(--bg-panel)] py-2">
+      {(
+        <div className="flex flex-wrap items-center gap-4 px-4">
           <button
             onClick={() => setClippingEnabled(!clippingEnabled)}
             disabled={!object}

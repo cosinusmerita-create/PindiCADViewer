@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import type { ColorMode, ComponentNode, Theme } from '../types/model'
+import type { ColorMode, ComponentNode, Theme, GroupRecord } from '../types/model'
 import { standardColorFor } from './colorPalette'
 import { analyzeMeshEdges, type MeshEdgeData } from './edgeAnalysis'
 
@@ -55,6 +55,67 @@ export function removeNodeById(
   })
 
   return removed ? { tree: { ...node, children }, removed } : { tree: node, removed: null }
+}
+
+// Returns a new tree where node `id` carries `name` (only the path from the
+// root to that node is copied; everything else is shared). Immutable on purpose:
+// the tree captured when the model opened (openingSnapshot) keeps the original
+// names, so "État d'origine" brings them back, exactly like it undoes groups.
+export function renameNodeById(node: ComponentNode, id: string, name: string): ComponentNode {
+  if (node.id === id) return node.name === name ? node : { ...node, name }
+  let changed = false
+  const children = node.children.map((child) => {
+    const next = renameNodeById(child, id, name)
+    if (next !== child) changed = true
+    return next
+  })
+  return changed ? { ...node, children } : node
+}
+
+// The user-made groups of a tree, inner groups before the groups that contain
+// them, so a saved project can be rebuilt with applyGroupRecords in one pass.
+export function collectGroupRecords(node: ComponentNode, records: GroupRecord[] = []): GroupRecord[] {
+  for (const child of node.children) collectGroupRecords(child, records)
+  if (node.isGroup) records.push({ id: node.id, name: node.name, childIds: node.children.map((c) => c.id) })
+  return records
+}
+
+// Rebuilds saved groups on a freshly loaded tree, the same way createGroup
+// made them: their members are pulled out of wherever they sit and put under a
+// new folder (same id and name as when saved) at the root. A group is built as
+// soon as all of its members exist, which is what lets a group that contains
+// another group come out right regardless of the order they were saved in.
+// Records that reference parts this file doesn't have (or that would leave
+// fewer than 2 members) are skipped instead of breaking the load.
+export function applyGroupRecords(tree: ComponentNode, records: GroupRecord[]): ComponentNode {
+  let working = tree
+  const pending = records.filter((r) => !findNodeById(tree, r.id))
+  let progress = true
+  while (pending.length > 0 && progress) {
+    progress = false
+    for (let i = 0; i < pending.length; ) {
+      const record = pending[i]
+      if (!record.childIds.every((id) => findNodeById(working, id))) {
+        i++
+        continue
+      }
+      const detached: ComponentNode[] = []
+      for (const id of record.childIds) {
+        const result = removeNodeById(working, id)
+        working = result.tree
+        if (result.removed) detached.push(result.removed)
+      }
+      if (detached.length >= 2) {
+        working = {
+          ...working,
+          children: [...working.children, { id: record.id, name: record.name, mesh: null, children: detached, isGroup: true }],
+        }
+      }
+      pending.splice(i, 1)
+      progress = true
+    }
+  }
+  return working
 }
 
 // Stamps each mesh with its owning node id, so a raycasted mesh in the 3D
@@ -179,13 +240,92 @@ export function applyColorModeToTree(
   for (const child of node.children) applyColorModeToTree(child, colorMode, customColors, theme)
 }
 
-// Precomputes edge/circle data for every mesh in the tree, keyed by node id,
-// for the measure tool's edge snapping - done once at load time so hovering
-// in measure mode never has to wait on it.
-export function buildEdgeDataMap(node: ComponentNode, map: Map<string, MeshEdgeData> = new Map()) {
-  if (node.mesh) map.set(node.id, analyzeMeshEdges(node.mesh))
-  for (const child of node.children) buildEdgeDataMap(child, map)
-  return map
+// Edge/circle data for every mesh, keyed by node id, for the measure tool's
+// snapping and the dimension/flow features. Analyzing a mesh is expensive
+// (it scales with triangle count), and most sessions never measure anything,
+// so it is computed per mesh on first access instead of for the whole model
+// at load time - that used to freeze the UI for seconds on big assemblies.
+// It is a real Map subclass so every existing consumer (`get`, `has`, and
+// `for...of` in flowPassages.ts) keeps working unchanged: point lookups
+// analyze just that mesh, and any full iteration analyzes the rest first.
+export class LazyEdgeDataMap extends Map<string, MeshEdgeData> {
+  private pending = new Map<string, THREE.Mesh>()
+
+  constructor(root: ComponentNode) {
+    super()
+    const collect = (node: ComponentNode) => {
+      if (node.mesh) this.pending.set(node.id, node.mesh)
+      for (const child of node.children) collect(child)
+    }
+    collect(root)
+  }
+
+  // Analyzes one still-pending mesh; returns false when nothing is left.
+  analyzeNext(): boolean {
+    const first = this.pending.keys().next()
+    if (first.done) return false
+    this.materialize(first.value)
+    return true
+  }
+
+  private materialize(id: string) {
+    const mesh = this.pending.get(id)
+    if (!mesh) return
+    this.pending.delete(id)
+    super.set(id, analyzeMeshEdges(mesh))
+  }
+
+  private materializeAll() {
+    for (const id of [...this.pending.keys()]) this.materialize(id)
+  }
+
+  override get(id: string) {
+    this.materialize(id)
+    return super.get(id)
+  }
+
+  override has(id: string) {
+    return this.pending.has(id) || super.has(id)
+  }
+
+  override get size() {
+    return this.pending.size + super.size
+  }
+
+  override forEach(...args: Parameters<Map<string, MeshEdgeData>['forEach']>) {
+    this.materializeAll()
+    super.forEach(...args)
+  }
+  override entries() {
+    this.materializeAll()
+    return super.entries()
+  }
+  override values() {
+    this.materializeAll()
+    return super.values()
+  }
+  override [Symbol.iterator]() {
+    this.materializeAll()
+    return super[Symbol.iterator]()
+  }
+}
+
+// Analyzes pending meshes one per idle slice after load, so the first
+// measurement usually finds its data already computed without any single
+// long task blocking the UI. Returns a cancel function.
+export function prewarmEdgeData(map: LazyEdgeDataMap): () => void {
+  let cancelled = false
+  const ric = (window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number })
+    .requestIdleCallback
+  const schedule = (cb: () => void) => (ric ? ric(cb, { timeout: 2000 }) : window.setTimeout(cb, 50))
+  const step = () => {
+    if (cancelled) return
+    if (map.analyzeNext()) schedule(step)
+  }
+  schedule(step)
+  return () => {
+    cancelled = true
+  }
 }
 
 export function collectMeshes(node: ComponentNode, meshes: THREE.Mesh[] = []): THREE.Mesh[] {

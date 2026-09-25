@@ -1,7 +1,10 @@
+import { snapshotPrintState } from '../hooks/usePrintStore'
 import { useModelStore } from '../hooks/useModelState'
 import { buildDimensionReport } from './dimensioning'
 import { fetchAsDataUrl } from './imageUtils'
 import { buildProjectFile, downloadTextFile, projectFileName, serializeProjectFile } from './projectFile'
+import { encodeSource, MAX_EMBEDDED_SOURCE_BYTES } from './embeddedSource'
+import { collectGroupRecords } from './componentTree'
 import { generateTechnicalSheetPdf, type ViewCaptures } from './pdfExport'
 import type { CameraState } from '../types/model'
 
@@ -63,9 +66,18 @@ export async function buildPdfBlobAndFile(fileName: string) {
 // global keyboard shortcuts (App.tsx), pulled out into their own plain
 // functions (reading store state via getState() rather than hooks) so
 // neither entry point duplicates the actual save/export logic.
-export function saveProjectFile(pushToast: (message: string) => void) {
+export async function saveProjectFile(pushToast: (message: string) => void) {
   const state = useModelStore.getState()
   if (!state.tree || !state.fileName) return
+  // The source CAD file goes inside the .pindi so the project opens on its own.
+  let embeddedSource
+  if (state.sourceFile && state.sourceFile.size <= MAX_EMBEDDED_SOURCE_BYTES) {
+    try {
+      embeddedSource = await encodeSource(state.sourceFile)
+    } catch {
+      embeddedSource = undefined
+    }
+  }
   const camera: CameraState = state.getCameraState?.() ?? { position: [0, 0, 0], target: [0, 0, 0], zoom: 1 }
   const project = buildProjectFile({
     projectName: state.projectName,
@@ -76,11 +88,18 @@ export function saveProjectFile(pushToast: (message: string) => void) {
     colors: state.customColors,
     visibility: state.visibility,
     opacity: state.opacity,
+    names: state.customNames,
+    groups: state.tree ? collectGroupRecords(state.tree) : [],
+    colorMode: state.colorMode,
+    paletteColors: state.paletteOverride ?? undefined,
+    selection: state.selectedNodeIds,
+    print: snapshotPrintState(),
     measurements: state.measurements,
     clippingEnabled: state.clippingEnabled,
     clippingAxis: state.clippingAxis,
     clippingPosition: state.clippingPosition,
     annotations: state.annotations,
+    embeddedSource,
   })
   // application/octet-stream, not application/json: some mobile download
   // managers rename the file to match a recognized MIME type's own default
@@ -88,7 +107,11 @@ export function saveProjectFile(pushToast: (message: string) => void) {
   // which then fails to open since the app routes by file extension.
   downloadTextFile(serializeProjectFile(project), projectFileName(state.fileName), 'application/octet-stream')
   useModelStore.getState().setHasUnsavedChanges(false)
-  pushToast('Projet enregistré (.pindi)')
+  pushToast(
+    embeddedSource
+      ? 'Projet enregistré (.pindi) - fichier source inclus'
+      : "Projet enregistré (.pindi) - sans le fichier source (il sera demandé à l'ouverture)",
+  )
 }
 
 // Shared by the "Fichier" dropdown's "Fermer" item and the Ctrl+W global

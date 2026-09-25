@@ -1,49 +1,39 @@
 /* eslint-disable no-undef */
-// A leading "/" would resolve from the site's true root, and a plain
-// import.meta.env.BASE_URL prefix breaks the other way once that base is
-// relative ("./", used for the Electron file:// build - see
-// vite.config.ts): importScripts resolves a relative path against the
-// WORKER SCRIPT's own URL (dist/assets/step.worker-*.js), not the page's,
-// so "./occt-import-js/..." would look one directory too deep. self.location
-// (not import.meta.url) is the anchor: this worker is loaded with
-// { type: 'classic' } (importScripts itself is unavailable to module
-// workers), and referencing import.meta - valid only inside an ES module -
-// from a classic script is a SyntaxError, which broke loading every STEP
-// file. self.location.href gives the same "this worker's own final URL"
-// under any base, absolute or relative alike, without requiring module
-// syntax.
-importScripts(new URL('../occt-import-js/occt-import-js.js', self.location.href).href)
-
+// The occt-import-js folder's URL is computed by the MAIN thread (see
+// stepLoader.ts) from the page's base and sent with each message, instead of
+// being derived here from self.location: in dev this worker is served from
+// /PindiCADViewer/src/workers/, in the build from dist/assets/, so any
+// path relative to the worker's own URL is right in one and wrong in the
+// other. The page URL + BASE_URL resolves correctly under both the absolute
+// GitHub Pages base and the relative "./" base of the Electron file:// build
+// (see vite.config.ts). importScripts is called lazily, once, because the
+// folder URL only arrives with the first message; this worker is a classic
+// one (importScripts is unavailable to module workers).
 let occtPromise = null
 
-function getOcct() {
+function getOcct(occtBaseUrl) {
   if (!occtPromise) {
+    importScripts(occtBaseUrl + 'occt-import-js.js')
     occtPromise = occtimportjs({
-      locateFile: (path) => new URL('../occt-import-js/' + path, self.location.href).href,
+      locateFile: (path) => occtBaseUrl + path,
     })
   }
   return occtPromise
 }
 
 self.onmessage = async (event) => {
-  const { fileBuffer } = event.data
+  const { fileBuffer, occtBaseUrl, meshParams } = event.data
   try {
-    const occt = await getOcct()
+    const occt = await getOcct(occtBaseUrl)
     const fileData = new Uint8Array(fileBuffer)
     // occt-import-js doesn't expose true B-Rep edges/curves (verified against
     // its actual output - only the triangulated mesh plus a triangle-range ->
     // originating-face table, brep_faces, is available), so exact analytic
-    // measurement isn't possible from this library. What tightening the
-    // deflection *does* buy: a tessellation fine enough that measurements
-    // taken from it agree with the true STEP geometry to within the 2-decimal
-    // (hundredth of a mm) precision this app now targets. An absolute value
-    // is used rather than the bounding-box-ratio default so a small part in
-    // a large assembly doesn't get coarsened along with everything else.
-    const result = occt.ReadStepFile(fileData, {
-      linearDeflectionType: 'absolute_value',
-      linearDeflection: 0.01,
-      angularDeflection: 0.2,
-    })
+    // measurement isn't possible from this library: measurements are only as
+    // exact as the tessellation. How fine that is - and therefore how long
+    // the file takes to open - is the user's choice (see stepQuality.ts);
+    // null keeps occt-import-js's own size-relative default.
+    const result = occt.ReadStepFile(fileData, meshParams ?? null)
 
     if (!result.success || !result.meshes || result.meshes.length === 0) {
       self.postMessage({ success: false, error: "Le fichier STEP n'a pas pu être lu ou ne contient aucune géométrie." })

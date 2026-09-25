@@ -33,6 +33,55 @@ function firstDescendantMaterial(node: ComponentNode): THREE.MeshStandardMateria
   return undefined
 }
 
+// Inline rename field that replaces a row's name. Enter (or leaving the field)
+// keeps the new name, Escape drops it; an empty name is ignored by the store.
+// `doneRef` makes sure only the first of Enter/Escape/blur counts - Enter
+// unmounts the field, and the blur that follows must not commit a second time
+// (or, after Escape, commit what was just cancelled).
+function RenameField({
+  initial,
+  onCommit,
+  onCancel,
+}: {
+  initial: string
+  onCommit: (name: string) => void
+  onCancel: () => void
+}) {
+  const [value, setValue] = useState(initial)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const doneRef = useRef(false)
+
+  useEffect(() => {
+    inputRef.current?.focus()
+    inputRef.current?.select()
+  }, [])
+
+  const finish = (commit: boolean) => {
+    if (doneRef.current) return
+    doneRef.current = true
+    if (commit) onCommit(value)
+    else onCancel()
+  }
+
+  return (
+    <input
+      ref={inputRef}
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        e.stopPropagation()
+        if (e.key === 'Enter') finish(true)
+        else if (e.key === 'Escape') finish(false)
+      }}
+      onBlur={() => finish(true)}
+      maxLength={120}
+      className="min-w-0 flex-1 rounded border border-sky-400/70 bg-[var(--bg-hover)] px-1 py-0.5 text-xs text-[var(--text-primary)] outline-none"
+    />
+  )
+}
+
 function TreeRow({ node, depth }: TreeRowProps) {
   const [expanded, setExpanded] = useState(true)
   const [showOpacitySlider, setShowOpacitySlider] = useState(false)
@@ -43,6 +92,12 @@ function TreeRow({ node, depth }: TreeRowProps) {
   // Subscribed only to force a re-render when the color changes - the swatch
   // itself always reads the live material color directly (see below).
   useModelStore((s) => s.customColors[node.id])
+  // ...and when the color MODE changes ("Couleurs par pièce" on/off, theme):
+  // that repaints every material without touching customColors, and the
+  // swatches used to stay stuck on the previous colors.
+  useModelStore((s) => s.colorMode)
+  useModelStore((s) => s.paletteVersion)
+  useModelStore((s) => s.theme)
   const selectedNodeIds = useModelStore((s) => s.selectedNodeIds)
   const selectNode = useModelStore((s) => s.selectNode)
   const toggleNodeSelection = useModelStore((s) => s.toggleNodeSelection)
@@ -54,6 +109,10 @@ function TreeRow({ node, depth }: TreeRowProps) {
   const setColorForSelection = useModelStore((s) => s.setColorForSelection)
   const setVisibilityForSelection = useModelStore((s) => s.setVisibilityForSelection)
   const theme = useModelStore((s) => s.theme)
+  const isRenaming = useModelStore((s) => s.renamingNodeId === node.id)
+  const setRenamingNodeId = useModelStore((s) => s.setRenamingNodeId)
+  const renameNode = useModelStore((s) => s.renameNode)
+  const openContextMenu = useModelStore((s) => s.openContextMenu)
   const hasChildren = node.children.length > 0
   const material = node.mesh ? getPrimaryMaterial(node.mesh) : firstDescendantMaterial(node)
   const isTransparent = opacity < 0.999
@@ -88,6 +147,12 @@ function TreeRow({ node, depth }: TreeRowProps) {
       <div
         ref={rowRef}
         onClick={handleRowClick}
+        // Same menu as a right-click on the part in the 3D view (Renommer, Masquer,
+        // Dissocier...) - the tree is where groups live, so it needs it too.
+        onContextMenu={(e) => {
+          e.preventDefault()
+          openContextMenu({ nodeId: node.id, x: e.clientX, y: e.clientY })
+        }}
         // Solidworks matches the classic Windows Explorer / SolidWorks tree
         // look - a solid selection fill, not the translucent overlay dark/
         // light use - so it needs its own branch rather than just swapping
@@ -154,11 +219,27 @@ function TreeRow({ node, depth }: TreeRowProps) {
           </>
         )}
 
-        <span
-          className={`flex-1 truncate ${isSelected ? 'text-white' : visible ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}`}
-        >
-          {node.name}
-        </span>
+        {isRenaming ? (
+          <RenameField
+            initial={node.name}
+            onCommit={(name) => {
+              renameNode(node.id, name)
+              setRenamingNodeId(null)
+            }}
+            onCancel={() => setRenamingNodeId(null)}
+          />
+        ) : (
+          <span
+            title="Double-clic pour renommer"
+            onDoubleClick={(e) => {
+              stop(e)
+              setRenamingNodeId(node.id)
+            }}
+            className={`flex-1 truncate ${isSelected ? 'text-white' : visible ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}`}
+          >
+            {node.name}
+          </span>
+        )}
 
         <button
           title="Opacité"
@@ -254,7 +335,7 @@ export function ComponentTree() {
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-1 py-1.5">
+      <div className="relative min-h-0 flex-1 overflow-y-auto px-1 py-1.5">
         {tree ? (
           <TreeRow node={tree} depth={0} />
         ) : (
