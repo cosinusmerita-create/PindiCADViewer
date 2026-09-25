@@ -175,6 +175,7 @@ function App() {
 
       if (e.key === 'Escape') {
         if (showHelp) setShowHelp(false)
+        else if (useModelStore.getState().zoomWindowMode) useModelStore.getState().toggleZoomWindowMode()
         else if (pipetteMode) exitPipetteMode()
         else if (measureMode) exitMeasureMode()
         else if (annotationMode) exitAnnotationMode()
@@ -223,6 +224,10 @@ function App() {
           break
         case 'm':
           toggleMeasureMode()
+          break
+        // Zoom ajusté (navigation buttons) - F is already the front view here.
+        case 'z':
+          useModelStore.getState().zoomToFit?.()
           break
       }
     }

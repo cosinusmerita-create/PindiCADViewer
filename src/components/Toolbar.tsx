@@ -8,6 +8,7 @@ import {
   Crosshair,
   Droplet,
   Droplets,
+  Expand,
   FolderOpen,
   Gem,
   Grid3x3,
@@ -18,6 +19,11 @@ import {
   Maximize2,
   MessageSquare,
   Minus,
+  MousePointer2,
+  Move,
+  Rotate3d,
+  ScanSearch,
+  ZoomIn,
   Dices,
   Palette,
   Printer,
@@ -43,7 +49,7 @@ import { CollisionButton, CollisionOptions } from './CollisionControls'
 import { Divider, ToolButton, ToolGroup } from './ToolButton'
 import { ViewActions } from './ViewActions'
 import { AnimationAssistantToggle } from './AnimationAssistant'
-import type { DisplayMode, ViewPreset } from '../types/model'
+import type { DisplayMode, NavMode, ViewPreset } from '../types/model'
 
 const MODES: {
   id: DisplayMode
@@ -69,6 +75,13 @@ const VIEWS: { id: ViewPreset; label: string; abbr: string }[] = [
   { id: 'iso', label: 'Isométrique', abbr: 'ISO' },
 ]
 
+const NAV_TOOLS: { id: NavMode; label: string; icon: ComponentType<{ size?: number }> }[] = [
+  { id: 'select', label: 'Sélectionner : clic = sélection, glisser = rotation', icon: MousePointer2 },
+  { id: 'pan', label: 'Translater : glisser pour déplacer la vue', icon: Move },
+  { id: 'rotate', label: 'Rotation : glisser pour faire tourner la vue', icon: Rotate3d },
+  { id: 'zoom', label: 'Zoom : glisser vers le haut / le bas pour zoomer', icon: ZoomIn },
+]
+
 // Opening a file, display modes, the click-to-place tools, and the
 // appearance/grouping toggles that used to live in StatusBar.tsx (moved
 // back up next to Sélection rectangle on request). View/color reset, the
@@ -82,6 +95,11 @@ export function Toolbar() {
   const displayMode = useModelStore((s) => s.displayMode)
   const setDisplayMode = useModelStore((s) => s.setDisplayMode)
   const goToView = useModelStore((s) => s.goToView)
+  const navMode = useModelStore((s) => s.navMode)
+  const setNavMode = useModelStore((s) => s.setNavMode)
+  const zoomWindowMode = useModelStore((s) => s.zoomWindowMode)
+  const toggleZoomWindowMode = useModelStore((s) => s.toggleZoomWindowMode)
+  const zoomToFit = useModelStore((s) => s.zoomToFit)
   const object = useModelStore((s) => s.object)
   const clearModel = useModelStore((s) => s.clearModel)
   const pipetteMode = useModelStore((s) => s.pipetteMode)
@@ -266,6 +284,48 @@ export function Toolbar() {
             </div>
           </>
         )}
+
+        <Divider />
+
+        {/* Navigation tools, as in SOLIDWORKS / eDrawings: the first four
+            choose what a left-drag does in the view (right-drag pan and the
+            wheel zoom always work); Zoom fenêtre is one-shot; Zoom ajusté is
+            an immediate action keeping the current orientation. */}
+        <div title="Navigation" className="flex shrink-0 items-center rounded-lg bg-[var(--bg-hover)] p-0.5">
+          {NAV_TOOLS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              title={label}
+              onClick={() => setNavMode(id)}
+              disabled={!object}
+              className={`flex items-center justify-center rounded-md p-1.5 transition-colors disabled:pointer-events-none disabled:opacity-30 ${
+                navMode === id && !zoomWindowMode
+                  ? 'bg-[var(--bg-active)] text-white'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              <Icon size={15} />
+            </button>
+          ))}
+          <button
+            title="Zoom fenêtre : tracez un rectangle sur la zone à agrandir"
+            onClick={() => toggleZoomWindowMode()}
+            disabled={!object}
+            className={`flex items-center justify-center rounded-md p-1.5 transition-colors disabled:pointer-events-none disabled:opacity-30 ${
+              zoomWindowMode ? 'bg-[var(--bg-active)] text-white' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+            }`}
+          >
+            <ScanSearch size={15} />
+          </button>
+          <button
+            title="Zoom ajusté : cadrer tout le modèle visible (Z)"
+            onClick={() => zoomToFit?.()}
+            disabled={!object}
+            className="flex items-center justify-center rounded-md p-1.5 text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:pointer-events-none disabled:opacity-30"
+          >
+            <Expand size={15} />
+          </button>
+        </div>
 
         <Divider />
 

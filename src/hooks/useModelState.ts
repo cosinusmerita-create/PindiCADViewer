@@ -12,8 +12,10 @@ import type {
   DisplayMode,
   InitialTransform,
   Measurement,
+  NavMode,
   NodeAnimationState,
   ProjectFile,
+  ScreenRect,
   ResetSignal,
   Theme,
   TimedAnimationKind,
@@ -109,6 +111,16 @@ interface ModelState {
   error: string | null
   resetView: (() => void) | null
   goToView: ((preset: ViewPreset) => void) | null
+  // SOLIDWORKS/eDrawings-style navigation tools (Toolbar, after VUES): what a
+  // left-drag does in the viewport. 'select' keeps the historical behaviour
+  // (click selects, drag orbits); in the other modes a click never selects.
+  navMode: NavMode
+  // One-shot "Zoom fenêtre": the next left-drag rectangle is zoomed onto.
+  zoomWindowMode: boolean
+  // Registered by the Canvas scene (like goToView): fit the visible model
+  // keeping the current orientation, and zoom onto a screen rectangle.
+  zoomToFit: (() => void) | null
+  zoomToRect: ((rect: ScreenRect) => void) | null
   clippingEnabled: boolean
   clippingPanelOpen: boolean
   clippingAxis: ClippingAxis
@@ -230,6 +242,10 @@ interface ModelState {
   setError: (error: string | null) => void
   setResetView: (fn: (() => void) | null) => void
   setGoToView: (fn: ((preset: ViewPreset) => void) | null) => void
+  setNavMode: (mode: NavMode) => void
+  toggleZoomWindowMode: () => void
+  setZoomToFit: (fn: (() => void) | null) => void
+  setZoomToRect: (fn: ((rect: ScreenRect) => void) | null) => void
   toggleComponentVisibility: (id: string) => void
   setNodeOpacity: (id: string, opacity: number) => void
   setAllOpacity: (opacity: number) => void
@@ -411,6 +427,10 @@ export const useModelStore = create<ModelState>((set, get) => ({
   error: null,
   resetView: null,
   goToView: null,
+  navMode: 'select',
+  zoomWindowMode: false,
+  zoomToFit: null,
+  zoomToRect: null,
   clippingEnabled: false,
   clippingPanelOpen: false,
   clippingAxis: 'x',
@@ -633,6 +653,11 @@ export const useModelStore = create<ModelState>((set, get) => ({
   setError: (error) => set({ error }),
   setResetView: (resetView) => set({ resetView }),
   setGoToView: (goToView) => set({ goToView }),
+  setNavMode: (navMode) => set({ navMode, zoomWindowMode: false }),
+  // Exclusive with box-select: both repurpose the same left-drag rectangle.
+  toggleZoomWindowMode: () => set((state) => ({ zoomWindowMode: !state.zoomWindowMode, boxSelectMode: false })),
+  setZoomToFit: (zoomToFit) => set({ zoomToFit }),
+  setZoomToRect: (zoomToRect) => set({ zoomToRect }),
 
   toggleComponentVisibility: (id) => {
     const { tree, visibility } = get()
@@ -912,6 +937,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
   toggleBoxSelectMode: () =>
     set((state) => ({
       boxSelectMode: !state.boxSelectMode,
+      zoomWindowMode: false,
       pipetteMode: false,
       pickedColor: null,
       measureMode: false,

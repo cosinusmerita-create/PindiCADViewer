@@ -55,7 +55,8 @@ import {
   type FlowAxis,
   type FlowTrajectoryShape,
 } from '../utils/flowTrajectory'
-import type { CameraState, ComponentNode, ViewPreset } from '../types/model'
+import type { CameraState, ComponentNode, ScreenRect, ViewPreset } from '../types/model'
+import { zoomToFitGoal, zoomToRectGoal } from '../utils/cameraNavigation'
 
 const MEASURE_MARKER_COLOR = '#ef4444'
 const MEASURE_LINE_COLOR = '#fde047'
@@ -526,6 +527,10 @@ function Scene() {
   const showGrid = useModelStore((s) => s.showGrid)
   const setResetView = useModelStore((s) => s.setResetView)
   const setGoToView = useModelStore((s) => s.setGoToView)
+  const setZoomToFit = useModelStore((s) => s.setZoomToFit)
+  const setZoomToRect = useModelStore((s) => s.setZoomToRect)
+  const navMode = useModelStore((s) => s.navMode)
+  const zoomWindowMode = useModelStore((s) => s.zoomWindowMode)
   const openContextMenu = useModelStore((s) => s.openContextMenu)
   const selectedNodeIds = useModelStore((s) => s.selectedNodeIds)
   const selectNode = useModelStore((s) => s.selectNode)
@@ -669,6 +674,29 @@ function Scene() {
     }
     setGoToView(goToView)
   }, [object, camera, setGoToView])
+
+  // "Zoom ajusté" and "Zoom fenêtre" (navigation buttons after VUES): same
+  // animated move as the presets, but keeping the current orientation - see
+  // cameraNavigation.ts for the maths.
+  useEffect(() => {
+    const zoomToFit = () => {
+      const controls = controlsRef.current
+      if (!controls || !object) return
+      const goal = zoomToFitGoal(camera as THREE.PerspectiveCamera, controls.target, object)
+      if (goal) animateCameraTo(camera as THREE.PerspectiveCamera, controls, goal.position, goal.target, 300)
+    }
+    setZoomToFit(zoomToFit)
+  }, [object, camera, setZoomToFit])
+
+  useEffect(() => {
+    const zoomToRect = (rect: ScreenRect) => {
+      const controls = controlsRef.current
+      if (!controls) return
+      const goal = zoomToRectGoal(camera as THREE.PerspectiveCamera, controls.target, rect, size.width, size.height)
+      if (goal) animateCameraTo(camera as THREE.PerspectiveCamera, controls, goal.position, goal.target, 300)
+    }
+    setZoomToRect(zoomToRect)
+  }, [camera, size, setZoomToRect])
 
   // Camera-state bridges for the project (.pindi) save/load flow - reading
   // and applying position/target/zoom from outside the Canvas, the same way
@@ -1100,6 +1128,11 @@ function Scene() {
       return
     }
 
+    // Translater / Rotation / Zoom are pure navigation tools (as in
+    // SOLIDWORKS): a click there must not change the selection. The
+    // click-to-place tools above keep working whatever the navigation mode.
+    if (navMode !== 'select') return
+
     if (e.nativeEvent.ctrlKey || e.nativeEvent.metaKey) {
       if (nodeId) toggleNodeSelection(nodeId)
       return
@@ -1232,9 +1265,27 @@ function Scene() {
         // drag-based itself (the rectangle IS a left-drag), so rotation has
         // to stay off there - both gestures use the same mouse button and
         // can't be told apart from each other.
-        enableRotate={!boxSelectMode}
+        enableRotate={!boxSelectMode && !zoomWindowMode}
         enablePan
         enableZoom
+        // Navigation buttons: the left button follows the chosen tool
+        // (Translater = pan, Zoom = dolly, Sélectionner/Rotation = orbit);
+        // right-drag pan and wheel zoom never change. While a rectangle tool
+        // (box-select, zoom window) owns the left drag, it stays mapped to
+        // ROTATE - which enableRotate above switches off - so neither pan
+        // nor dolly steals that drag.
+        mouseButtons={{
+          LEFT:
+            boxSelectMode || zoomWindowMode
+              ? THREE.MOUSE.ROTATE
+              : navMode === 'pan'
+                ? THREE.MOUSE.PAN
+                : navMode === 'zoom'
+                  ? THREE.MOUSE.DOLLY
+                  : THREE.MOUSE.ROTATE,
+          MIDDLE: THREE.MOUSE.DOLLY,
+          RIGHT: THREE.MOUSE.PAN,
+        }}
       />
       <GizmoHelper alignment="bottom-left" margin={[72, 72]}>
         <GizmoViewport axisColors={['#ef4444', '#22c55e', '#3b82f6']} labelColor="black" />
@@ -1275,13 +1326,18 @@ export function Viewer3D() {
   const measureMode = useModelStore((s) => s.measureMode)
   const annotationMode = useModelStore((s) => s.annotationMode)
   const boxSelectMode = useModelStore((s) => s.boxSelectMode)
+  const zoomWindowMode = useModelStore((s) => s.zoomWindowMode)
+  const navMode = useModelStore((s) => s.navMode)
   const flowPickMode = useModelStore((s) => s.flowPickMode)
   const measureTouchScreenPos = useModelStore((s) => s.measureTouchScreenPos)
   const measurePendingPoint = useModelStore((s) => s.measurePendingPoint)
   const setMeasurePendingPoint = useModelStore((s) => s.setMeasurePendingPoint)
   const setMeasurePendingSnap = useModelStore((s) => s.setMeasurePendingSnap)
   const { isMobile, isTouch } = useDevice()
-  const crosshair = pipetteMode || measureMode || annotationMode || boxSelectMode || flowPickMode
+  const crosshair = pipetteMode || measureMode || annotationMode || boxSelectMode || flowPickMode || zoomWindowMode
+  // Cursor of the navigation tool (Translater / Rotation / Zoom); the
+  // click-to-place tools and rectangle tools keep their crosshair.
+  const navCursor = navMode === 'pan' ? 'move' : navMode === 'rotate' ? 'grab' : navMode === 'zoom' ? 'ns-resize' : 'auto'
 
   const containerRef = useRef<HTMLDivElement>(null)
   const draggingRef = useRef(false)
@@ -1305,7 +1361,7 @@ export function Viewer3D() {
   }
 
   const handleBoxPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (!boxSelectMode || e.button !== 0) return
+    if (!(boxSelectMode || zoomWindowMode) || e.button !== 0) return
     const p = pointFromEvent(e)
     draggingRef.current = true
     setDragRect({ x0: p.x, y0: p.y, x1: p.x, y1: p.y })
@@ -1330,6 +1386,14 @@ export function Viewer3D() {
     const maxY = Math.max(finalRect.y0, finalRect.y1)
     if (maxX - minX < MIN_DRAG_PX && maxY - minY < MIN_DRAG_PX) return
 
+    // "Zoom fenêtre" shares this rectangle; it is one-shot, like in
+    // SOLIDWORKS: after the zoom the previous navigation tool is back.
+    if (useModelStore.getState().zoomWindowMode) {
+      useModelStore.getState().zoomToRect?.({ minX, maxX, minY, maxY })
+      useModelStore.getState().toggleZoomWindowMode()
+      return
+    }
+
     const positions = useModelStore.getState().getPartScreenPositions?.() ?? []
     const ids = positions
       .filter((p) => p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY)
@@ -1347,7 +1411,7 @@ export function Viewer3D() {
     >
       <Canvas
         className="!absolute inset-0"
-        style={{ pointerEvents: 'auto', cursor: crosshair ? 'crosshair' : 'auto' }}
+        style={{ pointerEvents: 'auto', cursor: crosshair ? 'crosshair' : navCursor }}
         camera={{ position: [4, 3, 6], fov: 45, near: 0.01, far: 5000 }}
         // preserveDrawingBuffer: without it, the browser is free to clear the
         // WebGL drawing buffer right after compositing each frame, which
@@ -1360,7 +1424,9 @@ export function Viewer3D() {
           // Pendant l'aperçu éclaté d'Impression 3D, un clic dans le vide ne doit pas
           // vider la sélection : l'emboîtement en dépend (pièces sélectionnées).
           if (usePrintStore.getState().previewOn) usePrintStore.getState().set({ previewSelected: null })
-          else if (!crosshair) clearSelection()
+          // Only the Sélectionner tool clears the selection on an empty click:
+          // a pan/rotate/zoom drag ending over the background must not.
+          else if (!crosshair && navMode === 'select') clearSelection()
         }}
       >
         <Suspense fallback={null}>

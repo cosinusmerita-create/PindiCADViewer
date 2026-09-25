@@ -361,6 +361,18 @@ export function HelpPanel() {
               />
               <SubTitle>Vues prédéfinies (7 boutons)</SubTitle>
               <Body>FA (Face), AR (Arrière), GA (Gauche), DR (Droite), DE (Dessus), SO (Dessous), ISO (Isométrique)</Body>
+              <SubTitle>Outils de navigation (après VUES, comme dans SOLIDWORKS / eDrawings)</SubTitle>
+              <List
+                items={[
+                  'Sélectionner : clic = sélection d’une pièce, glisser = rotation (fonctionnement habituel)',
+                  'Translater : glisser avec le bouton gauche déplace la vue ; un clic ne sélectionne rien',
+                  'Rotation : glisser avec le bouton gauche fait tourner la vue ; un clic ne sélectionne rien',
+                  'Zoom : glisser vers le haut / le bas avec le bouton gauche pour zoomer ; un clic ne sélectionne rien',
+                  'Zoom fenêtre : tracez un rectangle, la vue zoome sur cette zone puis l’outil précédent revient (Échap pour annuler)',
+                  'Zoom ajusté (touche Z) : cadre tout le modèle visible (pièces masquées exclues) sans changer l’orientation',
+                  'Dans tous les modes : clic droit glissé = déplacer, molette = zoomer. Les outils Mesure, Pipette, Annoter… restent prioritaires',
+                ]}
+              />
               <Body>
                 Transition animée 300ms. Bouton "Réinitialiser la vue" recentre. Grille au sol toggle. Gizmo XYZ en
                 bas à gauche.

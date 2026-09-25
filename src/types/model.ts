@@ -8,6 +8,18 @@ export type DisplayMode =
   | 'hidden-lines-removed'
   | 'realistic'
 
+// Left-drag behaviour chosen with the navigation buttons (Sélectionner,
+// Translater, Rotation, Zoom) - see useModelState's navMode.
+export type NavMode = 'select' | 'pan' | 'rotate' | 'zoom'
+
+// A rectangle in viewport pixels (origin top-left of the 3D view).
+export interface ScreenRect {
+  minX: number
+  maxX: number
+  minY: number
+  maxY: number
+}
+
 export type ViewPreset = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom' | 'iso'
 
 export type ClippingAxis = 'x' | 'y' | 'z'
