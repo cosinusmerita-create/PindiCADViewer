@@ -4,6 +4,7 @@ import { STEP_QUALITY_PARAMS, useStepQualityStore } from './stepQuality'
 import { createStandardMaterial } from './colorPalette'
 import { readMeshCache, writeMeshCache } from './meshCache'
 import { identifyParts } from './partIdentity'
+import { sewSurfaces } from './surfaceSewing'
 
 interface WorkerMeshResult {
   name: string
@@ -32,6 +33,9 @@ interface WorkerResponse {
   meshes?: WorkerMeshResult[]
   root?: WorkerTreeNode | null
 }
+
+// B-Rep exchange formats read by the occt-import-js worker (see step.worker.js).
+export type OcctFormat = 'step' | 'iges' | 'brep'
 
 let worker: Worker | null = null
 
@@ -118,7 +122,7 @@ function buildLoadResult(data: ParsedStep, fileName: string): LoadResult {
   return { object: group, triangleCount, tree }
 }
 
-function parseInWorker(file: File): Promise<ParsedStep> {
+function parseInWorker(file: File, format: OcctFormat): Promise<ParsedStep> {
   return new Promise((resolve, reject) => {
     file
       .arrayBuffer()
@@ -131,7 +135,7 @@ function parseInWorker(file: File): Promise<ParsedStep> {
 
           const data = event.data
           if (!data.success || !data.meshes) {
-            reject(new Error(data.error || 'Échec du parsing du fichier STEP.'))
+            reject(new Error(data.error || `Échec de la lecture du fichier ${format.toUpperCase()}.`))
             return
           }
           resolve({ meshes: data.meshes, root: data.root ?? null })
@@ -140,7 +144,7 @@ function parseInWorker(file: File): Promise<ParsedStep> {
         const handleError = (err: ErrorEvent) => {
           w.removeEventListener('message', handleMessage)
           w.removeEventListener('error', handleError)
-          reject(new Error(err.message || 'Erreur du worker de parsing STEP.'))
+          reject(new Error(err.message || 'Erreur du worker de lecture OpenCascade.'))
         }
 
         w.addEventListener('message', handleMessage)
@@ -149,7 +153,7 @@ function parseInWorker(file: File): Promise<ParsedStep> {
         // web base and the relative Electron base (see step.worker.js).
         const occtBaseUrl = new URL(`${import.meta.env.BASE_URL}occt-import-js/`, window.location.href).href
         const meshParams = STEP_QUALITY_PARAMS[useStepQualityStore.getState().quality]
-        w.postMessage({ fileBuffer: buffer, occtBaseUrl, meshParams }, [buffer])
+        w.postMessage({ fileBuffer: buffer, occtBaseUrl, meshParams, format }, [buffer])
       })
       .catch(reject)
   })
@@ -158,7 +162,7 @@ function parseInWorker(file: File): Promise<ParsedStep> {
 // `fileHash` (the content hash the loader already computes) keys the persistent
 // cache together with the meshing quality: reopening the same file at the same
 // quality skips the slow OpenCascade parse entirely.
-export async function loadStepFile(file: File, fileHash?: string): Promise<LoadResult> {
+export async function loadStepFile(file: File, fileHash?: string, format: OcctFormat = 'step'): Promise<LoadResult> {
   const quality = useStepQualityStore.getState().quality
   const cacheKey = fileHash ? `${fileHash}:${quality}` : null
 
@@ -167,7 +171,10 @@ export async function loadStepFile(file: File, fileHash?: string): Promise<LoadR
     if (cached) return { ...buildLoadResult(cached, file.name), fromCache: true }
   }
 
-  const parsed = await parseInWorker(file)
+  let parsed = await parseInWorker(file, format)
+  // IGES: loose trimmed surfaces -> sewn, consistently oriented bodies (see
+  // surfaceSewing.ts). Done before caching so a reopen gets the sewn result.
+  if (format === 'iges') parsed = sewSurfaces(parsed, file.name)
   // Stored in the background: the model shows up without waiting for the write.
   if (cacheKey) {
     let bytes = 0

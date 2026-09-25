@@ -6,13 +6,16 @@ import { loadCachedStep, loadStepFile } from '../utils/stepLoader'
 import { decodeSource } from '../utils/embeddedSource'
 import { loadStlFile } from '../utils/stlLoader'
 import { loadObjFile } from '../utils/objLoader'
+import { load3dxmlFile } from '../utils/threeDxmlLoader'
+import { loadDxfFile } from '../utils/dxfLoader'
+import { GEOMETRY_FORMATS, OPEN_FILE_ACCEPT, formatForExtension } from '../utils/formats'
 import { LazyEdgeDataMap, prewarmEdgeData, tagMeshesWithNodeIds } from '../utils/componentTree'
 import { computeFileHash, parseProjectFile } from '../utils/projectFile'
 import type { LoadResult } from '../types/model'
 
-const GEOMETRY_EXTENSIONS = ['step', 'stp', 'stl', 'obj']
-export const OPEN_FILE_ACCEPT = '.step,.stp,.stl,.obj,.pindi'
-export const GEOMETRY_FILE_ACCEPT = '.step,.stp,.stl,.obj'
+// The accepted formats live in utils/formats.ts (one list for the loader,
+// the pickers, the drop zone and the Aide); re-exported for existing imports.
+export { OPEN_FILE_ACCEPT, GEOMETRY_FILE_ACCEPT } from '../utils/formats'
 
 // Blob/File content is an immutable snapshot, not a stream - calling
 // .arrayBuffer() more than once on the same File is well-defined and just
@@ -77,8 +80,10 @@ export function useFileLoader() {
   const loadGeometryFile = useCallback(
     async (file: File): Promise<string | null> => {
       const ext = extensionOf(file)
-      if (!GEOMETRY_EXTENSIONS.includes(ext)) {
-        setError(`Format ".${ext}" non supporté. Utilisez .step, .stp, .stl ou .obj.`)
+      const format = formatForExtension(ext)
+      if (!format) {
+        const known = GEOMETRY_FORMATS.map((f) => f.label).join(', ')
+        setError(`Format ".${ext}" non supporté. Formats lisibles : ${known}.`)
         return null
       }
 
@@ -89,9 +94,25 @@ export function useFileLoader() {
         const hash = await computeFileHash(await file.arrayBuffer())
 
         let result
-        if (ext === 'step' || ext === 'stp') result = await loadStepFile(file, hash)
-        else if (ext === 'stl') result = await loadStlFile(file)
-        else result = await loadObjFile(file)
+        switch (format.loader) {
+          case 'step':
+          case 'iges':
+          case 'brep':
+            result = await loadStepFile(file, hash, format.loader)
+            break
+          case 'stl':
+            result = await loadStlFile(file)
+            break
+          case 'obj':
+            result = await loadObjFile(file)
+            break
+          case '3dxml':
+            result = await load3dxmlFile(file)
+            break
+          case 'dxf':
+            result = await loadDxfFile(file)
+            break
+        }
 
         presentResult(result, file.name, hash, file)
         return hash

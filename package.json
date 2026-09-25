@@ -99,6 +99,30 @@
           "role": "Viewer"
         },
         {
+          "ext": "iges",
+          "name": "IGES File",
+          "description": "Fichier IGES CAO",
+          "role": "Viewer"
+        },
+        {
+          "ext": "igs",
+          "name": "IGS File",
+          "description": "Fichier IGES CAO",
+          "role": "Viewer"
+        },
+        {
+          "ext": "3dxml",
+          "name": "3DXML File",
+          "description": "Fichier 3DXML (CATIA V6)",
+          "role": "Viewer"
+        },
+        {
+          "ext": "dxf",
+          "name": "DXF File",
+          "description": "Dessin DXF",
+          "role": "Viewer"
+        },
+        {
           "ext": "pindi",
           "name": "Pindi Project",
           "description": "Projet PindiCADViewer",

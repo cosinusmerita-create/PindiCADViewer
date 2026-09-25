@@ -21,8 +21,18 @@ function getOcct(occtBaseUrl) {
   return occtPromise
 }
 
+// The same occt-import-js build reads three B-Rep exchange formats with an
+// identical result shape (meshes + assembly root), so one worker serves them
+// all; `format` only picks the reader and the wording of the failure message.
+const READERS = {
+  step: { read: (occt, data, params) => occt.ReadStepFile(data, params), label: 'STEP' },
+  iges: { read: (occt, data, params) => occt.ReadIgesFile(data, params), label: 'IGES' },
+  brep: { read: (occt, data, params) => occt.ReadBrepFile(data, params), label: 'BREP' },
+}
+
 self.onmessage = async (event) => {
-  const { fileBuffer, occtBaseUrl, meshParams } = event.data
+  const { fileBuffer, occtBaseUrl, meshParams, format } = event.data
+  const reader = READERS[format] || READERS.step
   try {
     const occt = await getOcct(occtBaseUrl)
     const fileData = new Uint8Array(fileBuffer)
@@ -33,10 +43,13 @@ self.onmessage = async (event) => {
     // exact as the tessellation. How fine that is - and therefore how long
     // the file takes to open - is the user's choice (see stepQuality.ts);
     // null keeps occt-import-js's own size-relative default.
-    const result = occt.ReadStepFile(fileData, meshParams ?? null)
+    const result = reader.read(occt, fileData, meshParams ?? null)
 
     if (!result.success || !result.meshes || result.meshes.length === 0) {
-      self.postMessage({ success: false, error: "Le fichier STEP n'a pas pu être lu ou ne contient aucune géométrie." })
+      self.postMessage({
+        success: false,
+        error: `Le fichier ${reader.label} n'a pas pu être lu ou ne contient aucune géométrie.`,
+      })
       return
     }
 

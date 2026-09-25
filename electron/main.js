@@ -11,7 +11,8 @@ const fs = require('node:fs/promises')
 // --preview (set by the electron:preview script) disambiguates the two.
 const isPreview = process.argv.includes('--preview')
 const isDev = !app.isPackaged && !isPreview
-const GEOMETRY_FILE_RE = /\.(step|stp|stl|obj|pindi)$/i
+// Keep in sync with src/utils/formats.ts (the renderer's list of readable formats).
+const GEOMETRY_FILE_RE = /\.(step|stp|iges|igs|brep|stl|obj|3dxml|dxf|pindi)$/i
 
 let mainWindow
 
@@ -85,10 +86,13 @@ function createWindow() {
           click: async () => {
             const result = await dialog.showOpenDialog(mainWindow, {
               filters: [
-                { name: 'Fichiers CAO', extensions: ['step', 'stp', 'stl', 'obj', 'pindi'] },
+                { name: 'Fichiers CAO', extensions: ['step', 'stp', 'iges', 'igs', 'brep', 'stl', 'obj', '3dxml', 'dxf', 'pindi'] },
                 { name: 'STEP', extensions: ['step', 'stp'] },
+                { name: 'IGES', extensions: ['iges', 'igs'] },
                 { name: 'STL', extensions: ['stl'] },
                 { name: 'OBJ', extensions: ['obj'] },
+                { name: '3DXML (CATIA V6)', extensions: ['3dxml'] },
+                { name: 'DXF', extensions: ['dxf'] },
                 { name: 'Projet Pindi', extensions: ['pindi'] },
                 { name: 'Tous les fichiers', extensions: ['*'] },
               ],

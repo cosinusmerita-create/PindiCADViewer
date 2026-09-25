@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { GEOMETRY_FORMATS } from '../utils/formats'
 import { X } from 'lucide-react'
 import { useModelStore } from '../hooks/useModelState'
 
@@ -213,9 +214,7 @@ export function HelpPanel() {
               <DataTable
                 headers={['Format', 'Extension', 'Moteur', 'Précision']}
                 rows={[
-                  ['STEP/STP', '.step, .stp', 'occt-import-js (WASM)', 'Maillage OpenCascade (finesse au choix)'],
-                  ['STL', '.stl', 'Three.js STLLoader', 'Triangulée'],
-                  ['OBJ', '.obj', 'Three.js OBJLoader', 'Triangulée'],
+                  ...GEOMETRY_FORMATS.map((f) => [f.label, f.extensions.map((e) => `.${e}`).join(', '), f.engine, f.precision]),
                   ['Projet Pindi', '.pindi', 'JSON natif', 'Session complète'],
                 ]}
               />

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { UploadCloud } from 'lucide-react'
 import { OPEN_FILE_ACCEPT, useFileLoader } from '../hooks/useFileLoader'
+import { GEOMETRY_EXTENSIONS_HINT } from '../utils/formats'
 import { useModelStore } from '../hooks/useModelState'
 import { STEP_QUALITY_OPTIONS, useStepQualityStore, type StepQuality } from '../utils/stepQuality'
 
@@ -122,7 +123,7 @@ export function FileDropZone({ children }: FileDropZoneProps) {
               <UploadCloud size={16} className="text-sky-400" />
               Glissez un fichier STEP, STL ou OBJ ici
             </p>
-            <p className="text-xs text-slate-600">.step · .stp · .stl · .obj</p>
+            <p className="text-xs text-slate-600">{GEOMETRY_EXTENSIONS_HINT}</p>
           </div>
           <button
             onClick={() => inputRef.current?.click()}
