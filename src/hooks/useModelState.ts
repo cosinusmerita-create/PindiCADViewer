@@ -530,6 +530,9 @@ export const useModelStore = create<ModelState>((set, get) => ({
       tree,
       visibility,
       opacity,
+      // Every opened part appears standing on the grid (centred under it,
+      // see Viewer3D's gridConfig); the Grille button / G key hides it.
+      showGrid: true,
       customColors: {},
       customNames: {},
       paletteOverride: null,

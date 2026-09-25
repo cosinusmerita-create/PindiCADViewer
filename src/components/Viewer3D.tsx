@@ -806,12 +806,17 @@ function Scene() {
 
   const gridConfig = useMemo(() => {
     if (!object || !boundingBox) {
-      return { y: 0, size: 20, cell: 1, section: 5 }
+      return { x: 0, y: 0, z: 0, size: 20, cell: 1, section: 5 }
     }
     const size = boundingBox.getSize(new THREE.Vector3())
+    const center = boundingBox.getCenter(new THREE.Vector3())
     const maxDim = Math.max(size.x, size.y, size.z) || 1
+    // Centred under the part (not at the file's origin, which can be far
+    // from the geometry) and level with its lowest point: the part stands on it.
     return {
+      x: center.x,
       y: boundingBox.min.y,
+      z: center.z,
       size: maxDim * 6,
       cell: maxDim / 10 || 1,
       section: (maxDim / 10 || 1) * 5,
@@ -1235,7 +1240,7 @@ function Scene() {
       )}
       {showGrid && (
         <Grid
-          position={[0, gridConfig.y, 0]}
+          position={[gridConfig.x, gridConfig.y, gridConfig.z]}
           args={[gridConfig.size, gridConfig.size]}
           cellSize={gridConfig.cell}
           cellThickness={0.7}

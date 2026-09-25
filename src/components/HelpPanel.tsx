@@ -374,7 +374,7 @@ export function HelpPanel() {
                 ]}
               />
               <Body>
-                Transition animée 300ms. Bouton "Réinitialiser la vue" recentre. Grille au sol toggle. Gizmo XYZ en
+                Transition animée 300ms. Bouton "Réinitialiser la vue" recentre. À chaque ouverture, la pièce est posée sur une grille centrée sous elle ; bouton Grille (touche G) pour la masquer. Gizmo XYZ en
                 bas à gauche.
               </Body>
             </section>
