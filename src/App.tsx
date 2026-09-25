@@ -27,6 +27,7 @@ import { saveProjectFile, exportTechnicalPdf, requestCloseProject } from './util
 import { useModelStore, THEME_STORAGE_KEY } from './hooks/useModelState'
 import { useToastStore } from './hooks/useToastStore'
 import { useFileLoader } from './hooks/useFileLoader'
+import { bridgeFormatForName } from './utils/formats'
 import type { DisplayMode } from './types/model'
 
 const DISPLAY_MODE_SHORTCUTS: Record<string, DisplayMode> = {
@@ -92,8 +93,14 @@ function App() {
     if (!window.electronAPI?.onOpenFile) return
     window.electronAPI.onOpenFile(async (filePath) => {
       try {
-        const bytes = await window.electronAPI!.readFile(filePath)
         const fileName = filePath.split(/[\\/]/).pop() ?? filePath
+        // Proprietary formats go straight to SOLIDWORKS by path (see
+        // useFileLoader): no need to copy a possibly huge file into memory.
+        if (bridgeFormatForName(fileName)) {
+          await loadFile(new File([], fileName), filePath)
+          return
+        }
+        const bytes = await window.electronAPI!.readFile(filePath)
         await loadFile(new File([bytes], fileName))
       } catch {
         pushToast(`Impossible d'ouvrir le fichier : ${filePath}`)

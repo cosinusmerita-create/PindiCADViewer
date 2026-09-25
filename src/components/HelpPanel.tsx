@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { GEOMETRY_FORMATS } from '../utils/formats'
+import { GEOMETRY_FORMATS, SOLIDWORKS_BRIDGE_FORMATS } from '../utils/formats'
 import { X } from 'lucide-react'
 import { useModelStore } from '../hooks/useModelState'
 
@@ -217,6 +217,19 @@ export function HelpPanel() {
                   ...GEOMETRY_FORMATS.map((f) => [f.label, f.extensions.map((e) => `.${e}`).join(', '), f.engine, f.precision]),
                   ['Projet Pindi', '.pindi', 'JSON natif', 'Session complète'],
                 ]}
+              />
+              <SubTitle>Formats propriétaires (version bureau, via SOLIDWORKS)</SubTitle>
+              <List
+                items={[
+                  "Ces formats n'ont pas de lecteur libre : la version bureau les fait ouvrir par le SOLIDWORKS installé sur le poste (lecture seule), qui en exporte une copie STEP (pièces, assemblages) ou DXF (mises en plan), puis l'affiche ici",
+                  'SOLIDWORKS doit être lancé ; un document déjà ouvert dans SOLIDWORKS reste ouvert, les autres sont refermés après conversion. La version web ne peut pas les ouvrir',
+                  "Un import peut s'arrêter sur une fenêtre de SOLIDWORKS (pièces référencées introuvables…) : au-delà de 10 minutes, l'ouverture est abandonnée avec un message",
+                  'DXF sans unités déclarées ($INSUNITS) : les cotes sont lues en millimètres',
+                ]}
+              />
+              <DataTable
+                headers={['Format', 'Extensions']}
+                rows={SOLIDWORKS_BRIDGE_FORMATS.map((f) => [f.label, f.extensions.map((e) => `.${e}`).join(', ')])}
               />
               <SubTitle>Méthodes d'ouverture</SubTitle>
               <List

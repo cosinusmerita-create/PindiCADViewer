@@ -1,6 +1,8 @@
 const { app, BrowserWindow, Menu, dialog, shell, ipcMain } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs/promises')
+const os = require('node:os')
+const { execFile } = require('node:child_process')
 
 // app.isPackaged alone isn't enough to tell "dev server" apart from
 // "preview the freshly built dist/ output": running `electron .` straight
@@ -13,6 +15,14 @@ const isPreview = process.argv.includes('--preview')
 const isDev = !app.isPackaged && !isPreview
 // Keep in sync with src/utils/formats.ts (the renderer's list of readable formats).
 const GEOMETRY_FILE_RE = /\.(step|stp|iges|igs|brep|stl|obj|3dxml|dxf|pindi)$/i
+// Formats the viewer cannot parse itself but the local SOLIDWORKS can open
+// (see solidworks-convert.ps1) - keep in sync with SOLIDWORKS_BRIDGE_FORMATS
+// in src/utils/formats.ts. Creo/NX-style version suffixes (part.prt.3) are
+// accepted. Deliberately NOT registered as file associations: double-clicking
+// a .SLDPRT must keep opening SOLIDWORKS.
+const SOLIDWORKS_FILE_RE =
+  /\.(sldprt|sldasm|slddrw|prtdot|asmdot|drwdot|eprt|easm|edrw|x_t|x_b|xmt_txt|xmt_bin|sat|sab|jt|ipt|iam|catpart|catproduct|par|psm|dwg|cal|ct1|prt|asm|neu|xas|xpr)(\.\d+)?$/i
+const isOpenable = (arg) => GEOMETRY_FILE_RE.test(arg) || SOLIDWORKS_FILE_RE.test(arg)
 
 let mainWindow
 
@@ -93,6 +103,12 @@ function createWindow() {
                 { name: 'OBJ', extensions: ['obj'] },
                 { name: '3DXML (CATIA V6)', extensions: ['3dxml'] },
                 { name: 'DXF', extensions: ['dxf'] },
+                {
+                  name: 'Via SOLIDWORKS (natifs, Parasolid, ACIS, JT, Inventor, CATIA V5, NX, Creo, Solid Edge, DWG…)',
+                  extensions: ['sldprt', 'sldasm', 'slddrw', 'prtdot', 'asmdot', 'drwdot', 'eprt', 'easm', 'edrw',
+                    'x_t', 'x_b', 'xmt_txt', 'sat', 'sab', 'jt', 'ipt', 'iam', 'catpart', 'catproduct', 'par', 'psm',
+                    'prt', 'asm', 'neu', 'xas', 'xpr', 'dwg', 'cal', 'ct1'],
+                },
                 { name: 'Projet Pindi', extensions: ['pindi'] },
                 { name: 'Tous les fichiers', extensions: ['*'] },
               ],
@@ -175,8 +191,68 @@ ipcMain.handle('read-file', async (_event, filePath) => {
   return buffer
 })
 
+// Opens a CAD file in the local SOLIDWORKS and exports a copy the viewer can
+// read (STEP for parts/assemblies, DXF for drawings) - see
+// solidworks-convert.ps1 for the COM details and safety rules. Windows only.
+// One conversion at a time (SOLIDWORKS is single-threaded for its API), with
+// a hard timeout: an import can stall inside SOLIDWORKS (a progress window
+// that never closes was observed on an Inventor assembly), and the renderer
+// must get an answer rather than spin forever. The script ships unpacked
+// (build.asarUnpack): PowerShell cannot read a file inside app.asar.
+const CONVERT_TIMEOUT_MS = 10 * 60 * 1000
+let conversionQueue = Promise.resolve()
+
+function runSolidWorksConversion(filePath) {
+  return new Promise((resolve) => {
+    if (process.platform !== 'win32') {
+      resolve({ ok: false, code: 'NOT_WINDOWS' })
+      return
+    }
+    const script = path.join(__dirname, 'solidworks-convert.ps1').replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`)
+    fs.mkdtemp(path.join(os.tmpdir(), 'pindicad-sw-')).then((outDir) => {
+      const args = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, '-InputPath', filePath, '-OutputDir', outDir]
+      execFile('powershell.exe', args, { timeout: CONVERT_TIMEOUT_MS, windowsHide: true, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 }, async (error, stdout) => {
+        const cleanup = () => fs.rm(outDir, { recursive: true, force: true }).catch(() => {})
+        if (error && error.killed) {
+          await cleanup()
+          resolve({ ok: false, code: 'TIMEOUT' })
+          return
+        }
+        let result
+        try {
+          const lines = String(stdout).trim().split(/\r?\n/)
+          result = JSON.parse(lines[lines.length - 1])
+        } catch {
+          await cleanup()
+          resolve({ ok: false, code: 'BAD_OUTPUT', message: String(stdout).slice(-400) })
+          return
+        }
+        if (!result.ok) {
+          await cleanup()
+          resolve(result)
+          return
+        }
+        try {
+          const bytes = await fs.readFile(result.output)
+          resolve({ ok: true, name: path.basename(result.output), kind: result.kind, bytes, log: result.log })
+        } catch (err) {
+          resolve({ ok: false, code: 'READ_FAILED', message: String(err) })
+        } finally {
+          await cleanup()
+        }
+      })
+    }, (err) => resolve({ ok: false, code: 'TEMP_FAILED', message: String(err) }))
+  })
+}
+
+ipcMain.handle('convert-with-solidworks', (_event, filePath) => {
+  const run = conversionQueue.then(() => runSolidWorksConversion(filePath))
+  conversionQueue = run.catch(() => {})
+  return run
+})
+
 // Ouvrir un fichier passé en argument (double-clic sur .step)
-const fileArg = process.argv.find((arg) => GEOMETRY_FILE_RE.test(arg))
+const fileArg = process.argv.find(isOpenable)
 
 // Single-instance: double-clicking a second .step while the app is already
 // open hands the file to the running window (via 'second-instance') instead
@@ -189,7 +265,7 @@ if (!gotLock) {
     if (!mainWindow) return
     if (mainWindow.isMinimized()) mainWindow.restore()
     mainWindow.focus()
-    const file = argv.find((arg) => GEOMETRY_FILE_RE.test(arg))
+    const file = argv.find(isOpenable)
     if (file) mainWindow.webContents.send('open-file', file)
   })
 

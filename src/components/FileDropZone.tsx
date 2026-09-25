@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { UploadCloud } from 'lucide-react'
 import { OPEN_FILE_ACCEPT, useFileLoader } from '../hooks/useFileLoader'
-import { GEOMETRY_EXTENSIONS_HINT } from '../utils/formats'
+import { GEOMETRY_EXTENSIONS_HINT, canUseSolidWorksBridge } from '../utils/formats'
 import { useModelStore } from '../hooks/useModelState'
 import { STEP_QUALITY_OPTIONS, useStepQualityStore, type StepQuality } from '../utils/stepQuality'
 
@@ -121,9 +121,14 @@ export function FileDropZone({ children }: FileDropZoneProps) {
           <div className="flex flex-col items-center gap-1.5">
             <p className="flex items-center gap-2 text-sm font-medium text-slate-300">
               <UploadCloud size={16} className="text-sky-400" />
-              Glissez un fichier STEP, STL ou OBJ ici
+              Glissez un fichier CAO ici
             </p>
             <p className="text-xs text-slate-600">{GEOMETRY_EXTENSIONS_HINT}</p>
+            {canUseSolidWorksBridge() && (
+              <p className="text-xs text-slate-600">
+                + via SOLIDWORKS : SOLIDWORKS, eDrawings, Parasolid, ACIS, JT, Inventor, CATIA V5, NX, Creo, Solid Edge, DWG
+              </p>
+            )}
           </div>
           <button
             onClick={() => inputRef.current?.click()}

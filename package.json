@@ -158,6 +158,9 @@
     },
     "portable": {
       "artifactName": "PindiCADViewer-Portable-${version}.${ext}"
-    }
+    },
+    "asarUnpack": [
+      "electron/solidworks-convert.ps1"
+    ]
   }
 }

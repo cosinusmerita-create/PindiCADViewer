@@ -8,7 +8,14 @@ import { loadStlFile } from '../utils/stlLoader'
 import { loadObjFile } from '../utils/objLoader'
 import { load3dxmlFile } from '../utils/threeDxmlLoader'
 import { loadDxfFile } from '../utils/dxfLoader'
-import { GEOMETRY_FORMATS, OPEN_FILE_ACCEPT, formatForExtension } from '../utils/formats'
+import {
+  GEOMETRY_FORMATS,
+  OPEN_FILE_ACCEPT,
+  SOLIDWORKS_ERRORS,
+  bridgeFormatForName,
+  canUseSolidWorksBridge,
+  formatForExtension,
+} from '../utils/formats'
 import { LazyEdgeDataMap, prewarmEdgeData, tagMeshesWithNodeIds } from '../utils/componentTree'
 import { computeFileHash, parseProjectFile } from '../utils/projectFile'
 import type { LoadResult } from '../types/model'
@@ -77,8 +84,54 @@ export function useFileLoader() {
     [setModel, setSourceFileHash, setSourceFile, pushToast],
   )
 
+  // Proprietary formats (SOLIDWORKS, Inventor, CATIA V5, Parasolid, DWG…):
+  // the desktop app has the local SOLIDWORKS export a STEP/DXF copy, which
+  // then goes through the normal pipeline below. Returns the converted file,
+  // or null after reporting why it could not be converted.
+  const convertThroughSolidWorks = useCallback(
+    async (file: File, sourcePath?: string): Promise<File | null> => {
+      const bridge = bridgeFormatForName(file.name)!
+      if (!canUseSolidWorksBridge()) {
+        setError(
+          `${bridge.label} : format propriétaire sans lecteur libre. Ouvrez-le dans la version bureau de ` +
+            'PindiCADViewer : elle le fait convertir par le SOLIDWORKS installé sur le poste.',
+        )
+        return null
+      }
+      const path = sourcePath || window.electronAPI?.getPathForFile?.(file) || ''
+      if (!path) {
+        setError(`Chemin du fichier « ${file.name} » inconnu : ouvrez-le avec Fichier → Ouvrir.`)
+        return null
+      }
+      pushToast(`Ouverture de ${file.name} par SOLIDWORKS…`)
+      const result = await window.electronAPI!.convertWithSolidWorks!(path)
+      if (!result.ok || !result.bytes || !result.kind) {
+        const text = SOLIDWORKS_ERRORS[result.code ?? ''] ?? `Conversion impossible (${result.code ?? 'erreur inconnue'}).`
+        setError(result.message ? `${text} Détail : ${result.message}` : text)
+        return null
+      }
+      pushToast(`${file.name} converti par SOLIDWORKS (${result.kind.toUpperCase()})`)
+      // Named after the original so the tree and the title say what was opened.
+      return new File([result.bytes], `${file.name}.${result.kind}`)
+    },
+    [setError, pushToast],
+  )
+
   const loadGeometryFile = useCallback(
-    async (file: File): Promise<string | null> => {
+    async (original: File, sourcePath?: string): Promise<string | null> => {
+      let file = original
+      if (!formatForExtension(extensionOf(file)) && bridgeFormatForName(file.name)) {
+        setLoading(true)
+        setError(null)
+        try {
+          const converted = await convertThroughSolidWorks(file, sourcePath)
+          if (!converted) return null
+          file = converted
+        } finally {
+          setLoading(false)
+        }
+      }
+
       const ext = extensionOf(file)
       const format = formatForExtension(ext)
       if (!format) {
@@ -123,7 +176,7 @@ export function useFileLoader() {
         setLoading(false)
       }
     },
-    [setLoading, setError, presentResult],
+    [setLoading, setError, presentResult, convertThroughSolidWorks],
   )
 
   // A .pindi project only stores settings, not geometry - it needs the
@@ -195,13 +248,15 @@ export function useFileLoader() {
     [setLoading, setError, loadGeometryFile, presentResult, applyProjectFile, pushToast],
   )
 
+  // `sourcePath` (Electron, file opened by path): lets a proprietary format be
+  // handed to SOLIDWORKS without first reading its bytes into the renderer.
   const loadFile = useCallback(
-    async (file: File) => {
+    async (file: File, sourcePath?: string) => {
       if (isPindiFile(file)) {
         await loadProjectFile(file)
         return
       }
-      await loadGeometryFile(file)
+      await loadGeometryFile(file, sourcePath)
     },
     [loadProjectFile, loadGeometryFile],
   )
