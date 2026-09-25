@@ -19,7 +19,7 @@ import { fitCameraToObject } from '../utils/cameraFit'
 import { applyDisplayMode } from '../utils/displayMode'
 import { VIEW_DEFINITIONS, getViewDistance } from '../utils/cameraViews'
 import { animateCameraTo } from '../utils/animateCamera'
-import { collectMeshes, collectPartNodeIds, findNodeById, getPrimaryMaterial } from '../utils/componentTree'
+import { collectMeshes, collectPartNodeIds, findNodeById } from '../utils/componentTree'
 import { buildPartGroups } from '../utils/explodeModes'
 import { activeClippingPlanes } from '../utils/clippingPlanes'
 import { PrintCutPlanes } from './PrintCutPlanes'
@@ -539,8 +539,7 @@ function Scene() {
   const boxSelectMode = useModelStore((s) => s.boxSelectMode)
   const setGetPartScreenPositions = useModelStore((s) => s.setGetPartScreenPositions)
   const pipetteMode = useModelStore((s) => s.pipetteMode)
-  const pickedColor = useModelStore((s) => s.pickedColor)
-  const setPickedColor = useModelStore((s) => s.setPickedColor)
+  const paintColor = useModelStore((s) => s.paintColor)
   const exitPipetteMode = useModelStore((s) => s.exitPipetteMode)
   const setNodeColor = useModelStore((s) => s.setNodeColor)
   const setColorForSelection = useModelStore((s) => s.setColorForSelection)
@@ -952,17 +951,16 @@ function Scene() {
 
     const nodeId = findVisibleNodeId(e)
 
+    // Pipette = paint tool: the colour is chosen beforehand (colour picker or
+    // quick palette in the toolbar), each click paints. It used to copy the
+    // first clicked part's colour onto the next ones, which did nothing on a
+    // single-part model (a part re-painted with its own colour).
     if (pipetteMode) {
-      if (!nodeId || !tree) return
-      const node = findNodeById(tree, nodeId)
-      const material = node?.mesh ? getPrimaryMaterial(node.mesh) : undefined
-      if (!material) return
-      if (!pickedColor) {
-        setPickedColor(`#${material.color.getHexString()}`)
-      } else if (selectedNodeIds.length > 1 && selectedNodeIds.includes(nodeId)) {
-        setColorForSelection(pickedColor)
+      if (!nodeId) return
+      if (selectedNodeIds.length > 1 && selectedNodeIds.includes(nodeId)) {
+        setColorForSelection(paintColor)
       } else {
-        setNodeColor(nodeId, pickedColor)
+        setNodeColor(nodeId, paintColor)
       }
       return
     }

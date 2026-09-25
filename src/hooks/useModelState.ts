@@ -36,7 +36,7 @@ import {
   removeNodeById,
   renameNodeById,
 } from '../utils/componentTree'
-import { getRandomPaletteColors } from '../utils/colorPalette'
+import { PAINT_COLORS, getRandomPaletteColors } from '../utils/colorPalette'
 import { buildDimensionReport } from '../utils/dimensioning'
 import { clearCollisionHighlight } from '../utils/collisionFeedback'
 import { deserializeAnnotation, deserializeMeasurement } from '../utils/projectFile'
@@ -131,7 +131,9 @@ interface ModelState {
   boxSelectMode: boolean
   showGroupNamePrompt: boolean
   pipetteMode: boolean
-  pickedColor: string | null
+  // Colour the Pipette tool paints with: chosen from the colour picker or
+  // the quick palette (Toolbar), kept between uses of the tool.
+  paintColor: string
   measureMode: boolean
   // What a click does while measureMode is on: 'points' = the Mesure tool
   // (two clicks, point to point); 'edge' = the Cotes manuelles tool (one
@@ -281,7 +283,7 @@ interface ModelState {
   setShowGroupNamePrompt: (show: boolean) => void
   togglePipetteMode: () => void
   exitPipetteMode: () => void
-  setPickedColor: (color: string | null) => void
+  setPaintColor: (color: string) => void
   toggleMeasureMode: () => void
   toggleManualDimMode: () => void
   setManualDimKind: (kind: 'length' | 'gap') => void
@@ -441,7 +443,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
   boxSelectMode: false,
   showGroupNamePrompt: false,
   pipetteMode: false,
-  pickedColor: null,
+  paintColor: PAINT_COLORS[1].value,
   measureMode: false,
   measureVariant: 'points',
   manualDimKind: 'length',
@@ -549,7 +551,6 @@ export const useModelStore = create<ModelState>((set, get) => ({
       selectionAnchorId: null,
       boxSelectMode: false,
       pipetteMode: false,
-      pickedColor: null,
       measureMode: false,
       measurements: [],
       measurePendingPoint: null,
@@ -614,7 +615,6 @@ export const useModelStore = create<ModelState>((set, get) => ({
       boxSelectMode: false,
       showGroupNamePrompt: false,
       pipetteMode: false,
-      pickedColor: null,
       measureMode: false,
       measurements: [],
       measurePendingPoint: null,
@@ -856,7 +856,6 @@ export const useModelStore = create<ModelState>((set, get) => ({
       boxSelectMode: false,
       showGroupNamePrompt: false,
       pipetteMode: false,
-      pickedColor: null,
       measureMode: false,
       measurements: [],
       measurePendingPoint: null,
@@ -942,7 +941,6 @@ export const useModelStore = create<ModelState>((set, get) => ({
       boxSelectMode: !state.boxSelectMode,
       zoomWindowMode: false,
       pipetteMode: false,
-      pickedColor: null,
       measureMode: false,
       measurePendingPoint: null,
       measurePendingSnap: null,
@@ -1072,15 +1070,14 @@ export const useModelStore = create<ModelState>((set, get) => ({
   togglePipetteMode: () =>
     set((state) => ({
       pipetteMode: !state.pipetteMode,
-      pickedColor: null,
       measureMode: false,
       measurePendingPoint: null,
       measurePendingSnap: null,
       boxSelectMode: false,
       flowPickMode: false,
     })),
-  exitPipetteMode: () => set({ pipetteMode: false, pickedColor: null }),
-  setPickedColor: (pickedColor) => set({ pickedColor }),
+  exitPipetteMode: () => set({ pipetteMode: false }),
+  setPaintColor: (paintColor) => set({ paintColor }),
 
   // From Cotes manuelles, Mesure switches tools instead of turning off.
   toggleMeasureMode: () =>
@@ -1090,7 +1087,6 @@ export const useModelStore = create<ModelState>((set, get) => ({
       measurePendingPoint: null,
       measurePendingSnap: null,
       pipetteMode: false,
-      pickedColor: null,
       boxSelectMode: false,
       flowPickMode: false,
     })),
@@ -1105,7 +1101,6 @@ export const useModelStore = create<ModelState>((set, get) => ({
         measurePendingPoint: null,
         measurePendingSnap: null,
         pipetteMode: false,
-        pickedColor: null,
         boxSelectMode: false,
         flowPickMode: false,
         annotationMode: false,
@@ -1332,7 +1327,6 @@ export const useModelStore = create<ModelState>((set, get) => ({
       measurePendingPoint: null,
       measurePendingSnap: null,
       pipetteMode: false,
-      pickedColor: null,
       boxSelectMode: false,
       flowPickMode: false,
     })),
@@ -1347,7 +1341,6 @@ export const useModelStore = create<ModelState>((set, get) => ({
         flowPickMode: turningOn,
         flowEditPointIndex: null,
         pipetteMode: false,
-        pickedColor: null,
         measureMode: false,
         measurePendingPoint: null,
         measurePendingSnap: null,

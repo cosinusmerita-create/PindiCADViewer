@@ -474,10 +474,11 @@ export function HelpPanel() {
               <SubTitle>Outil Pipette</SubTitle>
               <List
                 items={[
-                  'Activez Pipette dans la toolbar',
-                  'Premier clic = prélève la couleur',
-                  'Clics suivants = applique aux autres pièces',
-                  'Escape = quitter le mode',
+                  'Activez Pipette dans la toolbar : une barre de couleurs apparaît sous les outils',
+                  'Choisissez la couleur : une pastille de la palette rapide, ou le grand carré pour toutes les couleurs',
+                  'Cliquez sur les pièces à peindre (fonctionne aussi avec une seule pièce) ; clic sur une pièce sélectionnée = toute la sélection',
+                  'La couleur choisie est gardée pour la prochaine utilisation',
+                  'Escape ou clic droit = quitter le mode',
                 ]}
               />
               <SubTitle>Transparence</SubTitle>

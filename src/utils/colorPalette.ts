@@ -66,3 +66,18 @@ export function createStandardMaterial(): THREE.MeshStandardMaterial {
   material.polygonOffsetUnits = 1
   return material
 }
+
+// Quick colours offered by the Pipette tool (the full colour picker is next
+// to them) - common workshop/CAD finishes.
+export const PAINT_COLORS: { value: string; label: string }[] = [
+  { value: '#e53935', label: 'Rouge' },
+  { value: '#f97316', label: 'Orange' },
+  { value: '#facc15', label: 'Jaune' },
+  { value: '#22c55e', label: 'Vert' },
+  { value: '#3b82f6', label: 'Bleu' },
+  { value: '#8b5cf6', label: 'Violet' },
+  { value: '#8a9aa9', label: 'Acier' },
+  { value: '#b0b0b0', label: 'Gris standard' },
+  { value: '#1f2937', label: 'Noir' },
+  { value: '#f8fafc', label: 'Blanc' },
+]
