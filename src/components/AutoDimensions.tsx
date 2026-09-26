@@ -127,7 +127,7 @@ function DimensionLine({
       <Html position={mid} center pointerEvents="none">
         <div
           ref={labelRef}
-          className="whitespace-nowrap rounded border border-white/10 bg-[#16162a]/90 px-1.5 py-0.5 text-[11px] font-medium shadow"
+          className="whitespace-nowrap rounded border border-white/10 bg-[var(--bg-panel)]/90 px-1.5 py-0.5 text-[11px] font-medium shadow"
           style={{ color }}
         >
           {label}
@@ -168,7 +168,7 @@ function DiameterCallout({
         <>
           <Line points={[rimPoint, labelPos]} color={color} lineWidth={1} transparent opacity={0.6} />
           <Html position={labelPos} center pointerEvents="none">
-            <div className="whitespace-nowrap rounded border border-white/10 bg-[#16162a]/90 px-1.5 py-0.5 text-[11px] font-medium shadow" style={{ color }}>
+            <div className="whitespace-nowrap rounded border border-white/10 bg-[var(--bg-panel)]/90 px-1.5 py-0.5 text-[11px] font-medium shadow" style={{ color }}>
               {label}
             </div>
           </Html>
@@ -337,7 +337,7 @@ export function AutoDimensions() {
         <Line points={pcdPoints} color={PITCH_COLOR} lineWidth={1.5} dashed dashSize={pitchCircle.diameter * 0.02} gapSize={pitchCircle.diameter * 0.015} />
         <Line points={[rimPoint, labelPos]} color={PITCH_COLOR} lineWidth={1} transparent opacity={0.6} />
         <Html position={labelPos} center pointerEvents="none">
-          <div className="whitespace-nowrap rounded border border-white/10 bg-[#16162a]/90 px-1.5 py-0.5 text-[11px] font-medium shadow" style={{ color: PITCH_COLOR }}>
+          <div className="whitespace-nowrap rounded border border-white/10 bg-[var(--bg-panel)]/90 px-1.5 py-0.5 text-[11px] font-medium shadow" style={{ color: PITCH_COLOR }}>
             {label}
           </div>
         </Html>

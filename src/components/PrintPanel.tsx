@@ -552,7 +552,7 @@ function NumberInput({
         step={step}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full min-w-[4.5rem] rounded border border-[var(--border-light)] bg-[#0f0f1e] px-1.5 py-0.5 text-right text-xs text-slate-200"
+        className="w-full min-w-[4.5rem] rounded border border-[var(--border-light)] bg-[var(--bg-input)] px-1.5 py-0.5 text-right text-xs text-slate-200"
       />
       {unit && <span className="w-6 text-[11px] text-[var(--text-muted)]">{unit}</span>}
     </span>

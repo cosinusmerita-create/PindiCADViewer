@@ -55,7 +55,7 @@ function AnnotationForm({ pending }: { pending: PendingAnnotation }) {
           }}
           placeholder="Texte de l'annotation..."
           rows={3}
-          className="w-full resize-none rounded border border-[var(--border-light)] bg-[#0f0f1e] px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-1 focus:ring-sky-500"
+          className="w-full resize-none rounded border border-[var(--border-light)] bg-[var(--bg-input)] px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-1 focus:ring-sky-500"
         />
         <div className="mt-2 flex justify-end gap-1.5">
           <button

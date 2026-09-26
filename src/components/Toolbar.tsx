@@ -756,7 +756,7 @@ export function Toolbar() {
                       step={0.25}
                       value={flowCircularTurns}
                       onChange={(e) => setFlowCircularTurns(Number(e.target.value))}
-                      className="w-12 rounded border border-[var(--border-light)] bg-[#0f0f1e] px-1 py-0.5 text-right text-[11px] text-slate-200"
+                      className="w-12 rounded border border-[var(--border-light)] bg-[var(--bg-input)] px-1 py-0.5 text-right text-[11px] text-slate-200"
                     />
                   </label>
                 </span>
@@ -804,7 +804,7 @@ export function Toolbar() {
                           type="number"
                           value={preciseDistance}
                           onChange={(e) => setPreciseDistance(Number(e.target.value))}
-                          className="w-20 rounded border border-[var(--border-light)] bg-[#0f0f1e] px-1.5 py-1 text-right text-xs text-slate-200"
+                          className="w-20 rounded border border-[var(--border-light)] bg-[var(--bg-input)] px-1.5 py-1 text-right text-xs text-slate-200"
                         />
                       </label>
                       <label className="flex items-center gap-2 text-[11px]">

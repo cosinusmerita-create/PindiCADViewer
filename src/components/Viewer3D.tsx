@@ -47,7 +47,7 @@ import { MeasurementsGroup } from './MeasurementsGroup'
 import { SnapIndicator } from './SnapIndicator'
 import { AutoDimensions } from './AutoDimensions'
 import { Annotations } from './Annotations'
-import { THEME_COLORS, getSolidworksBackgroundTexture } from '../utils/themeColors'
+import { THEME_COLORS, getThemeBackgroundTexture } from '../utils/themeColors'
 import { REALISTIC_FILL, REALISTIC_KEY, directionFromAngles, fillAngles } from '../utils/lighting'
 import { FLUID_TYPES, type FlowFluidType } from '../utils/fluidTypes'
 import {
@@ -671,19 +671,16 @@ function Scene() {
     })
   }, [object, camera, setResetView])
 
-  // Imperative rather than the declarative <color attach="background">
-  // this used to be: solidworks' backdrop is a vertical gradient texture
-  // (see themeColors.ts), not a flat color, so a single mechanism has to
-  // handle both cases here instead of splitting them across a JSX element
-  // and a separate effect that would otherwise fight over the same
-  // scene.background property.
+  // Imperative rather than a declarative <color attach="background">: every
+  // theme's backdrop is a vertical gradient texture (see themeColors.ts),
+  // not a flat colour.
   useEffect(() => {
     // oxlint's react(immutability) rule flags this (mutating a value
     // useThree() returned) - harmless here, since mutating `scene` directly
     // is the normal, idiomatic way to control it in r3f; there's no
     // immutable alternative for a THREE.Scene.
     scene.background =
-      theme === 'solidworks' ? getSolidworksBackgroundTexture() : new THREE.Color(THEME_COLORS[theme].canvasBg)
+      getThemeBackgroundTexture(theme)
   }, [theme, scene])
 
   useEffect(() => {
@@ -1638,7 +1635,7 @@ export function Viewer3D() {
             setMeasurePendingPoint(null)
             setMeasurePendingSnap(null)
           }}
-          className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-[#16162a]/95 px-4 py-2.5 text-sm font-medium text-white shadow-lg"
+          className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-[var(--bg-panel)]/95 px-4 py-2.5 text-sm font-medium text-white shadow-lg"
         >
           <X size={16} /> Annuler le point
         </button>

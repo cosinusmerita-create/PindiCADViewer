@@ -879,14 +879,16 @@ export function HelpPanel() {
               <List
                 items={[
                   <>
-                    <strong className="text-[var(--text-primary)]">Mode nuit</strong> — fond sombre, faible fatigue visuelle
+                    <strong className="text-[var(--text-primary)]">Mode nuit — Deep Obsidian & Cyan Precision</strong> — noir
+                    obsidienne et accent cyan, contraste pensé pour limiter la fatigue visuelle
                   </>,
                   <>
-                    <strong className="text-[var(--text-primary)]">Mode jour</strong> — fond clair
+                    <strong className="text-[var(--text-primary)]">Mode jour — Studio Clean / Neutral Slate</strong> — studio
+                    clair et neutre, accent bleu, idéal pour vérifier les cotes et les couleurs sans teinte parasite
                   </>,
                   <>
-                    <strong className="text-[var(--text-primary)]">Mode classique</strong> — palette proche d'un logiciel CAO
-                    traditionnel
+                    <strong className="text-[var(--text-primary)]">Mode classique — Titanium Industrial & Safety Orange</strong>{' '}
+                    — graphite titane et accent orange sécurité, fort contraste pour l'atelier
                   </>,
                 ]}
               />

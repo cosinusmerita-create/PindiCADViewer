@@ -8,6 +8,9 @@ import type { Theme } from '../types/model'
 // .tsx, SnapIndicator.tsx, AutoDimensions.tsx).
 export interface ThreeThemeColors {
   canvasBg: string
+  // 3D viewport backdrop, top to bottom: a soft vertical gradient gives the
+  // view some depth (the flat colour above stays the reference value).
+  canvasGradient: [string, string]
   edgeColor: string
   gridCell: string
   gridSection: string
@@ -21,91 +24,90 @@ export interface ThreeThemeColors {
   fillLightPosition: [number, number, number]
 }
 
-// Dark/light keep the original single fixed rig (unchanged - only
-// solidworks was reported as visually off) for both directional lights.
 const DEFAULT_KEY_LIGHT_INTENSITY = 1.1
 const DEFAULT_KEY_LIGHT_POSITION: [number, number, number] = [6, 10, 8]
 const DEFAULT_FILL_LIGHT_INTENSITY = 0.35
 const DEFAULT_FILL_LIGHT_POSITION: [number, number, number] = [-6, -4, -6]
 
+// Same three theme ids as ever (see index.css for the interface side):
+// dark = 01 Deep Obsidian & Cyan Precision, light = 02 Studio Clean / Neutral
+// Slate, solidworks ("Mode classique") = 03 Titanium Industrial & Safety Orange.
 export const THEME_COLORS: Record<Theme, ThreeThemeColors> = {
   dark: {
-    // Near-black cool background with a crisp, low-contrast grid: the model is
-    // what stands out. (Sampled from the reference look: bg #0a0c12, grid
-    // lines up to #1a1e2a - lines here are a touch lighter so they stay
-    // readable at grazing angles.)
-    canvasBg: '#0a0c12',
-    edgeColor: '#333333',
-    gridCell: '#1b1f2a',
-    gridSection: '#2a2f3b',
+    // Obsidian backdrop with a faint cyan-tinted grid: the model stands out.
+    canvasBg: '#0a0e13',
+    canvasGradient: ['#111a24', '#06090d'],
+    edgeColor: '#1c232c',
+    gridCell: '#172230',
+    gridSection: '#243a4a',
     ambientIntensity: 0.4,
     measurementText: '#ffffff',
-    dimensionLinear: '#66aaff',
-    dimensionDiameter: '#00ff88',
+    dimensionLinear: '#38bdf8',
+    dimensionDiameter: '#34d399',
     keyLightIntensity: DEFAULT_KEY_LIGHT_INTENSITY,
     keyLightPosition: DEFAULT_KEY_LIGHT_POSITION,
     fillLightIntensity: DEFAULT_FILL_LIGHT_INTENSITY,
     fillLightPosition: DEFAULT_FILL_LIGHT_POSITION,
   },
   light: {
-    canvasBg: '#e8ecf0',
-    edgeColor: '#555555',
-    gridCell: '#ccccdd',
-    gridSection: '#bbbbcc',
+    // Neutral studio: near-white to cool light gray, no colour cast on parts.
+    canvasBg: '#f1f4f8',
+    canvasGradient: ['#fbfcfe', '#e1e7ef'],
+    edgeColor: '#475569',
+    gridCell: '#d9e0e8',
+    gridSection: '#bcc7d4',
     ambientIntensity: 0.6,
-    measurementText: '#1a1a2e',
-    dimensionLinear: '#0066cc',
-    dimensionDiameter: '#008855',
+    measurementText: '#0f172a',
+    dimensionLinear: '#1d4ed8',
+    dimensionDiameter: '#047857',
     keyLightIntensity: DEFAULT_KEY_LIGHT_INTENSITY,
     keyLightPosition: DEFAULT_KEY_LIGHT_POSITION,
     fillLightIntensity: DEFAULT_FILL_LIGHT_INTENSITY,
     fillLightPosition: DEFAULT_FILL_LIGHT_POSITION,
   },
-  // canvasBg here is a representative flat fallback only (kept so every
-  // Theme has a complete entry) - the actual solidworks background is the
-  // gradient texture below, applied imperatively in Viewer3D.tsx since a
-  // vertical gradient isn't expressible as a single THREE.Color.
   solidworks: {
-    canvasBg: '#778899',
-    edgeColor: '#2a2a2a',
-    gridCell: '#778899',
-    gridSection: '#5a6b7a',
-    ambientIntensity: 0.5,
-    measurementText: '#000000',
-    dimensionLinear: '#004488',
-    dimensionDiameter: '#005522',
-    keyLightIntensity: 0.8,
-    keyLightPosition: [5, 8, 5],
-    fillLightIntensity: 0.3,
-    fillLightPosition: [-3, 4, -5],
+    // Brushed titanium: dark graphite gradient, neutral grid, strong edges.
+    canvasBg: '#17191d',
+    canvasGradient: ['#262a30', '#0f1114'],
+    edgeColor: '#0e1013',
+    gridCell: '#262b31',
+    gridSection: '#3e454e',
+    ambientIntensity: 0.45,
+    measurementText: '#ffffff',
+    dimensionLinear: '#60a5fa',
+    dimensionDiameter: '#10b981',
+    keyLightIntensity: DEFAULT_KEY_LIGHT_INTENSITY,
+    keyLightPosition: DEFAULT_KEY_LIGHT_POSITION,
+    fillLightIntensity: DEFAULT_FILL_LIGHT_INTENSITY,
+    fillLightPosition: DEFAULT_FILL_LIGHT_POSITION,
   },
 }
 
-let solidworksBackgroundTexture: THREE.CanvasTexture | null = null
+const backgroundTextures = new Map<Theme, THREE.CanvasTexture>()
 
-// The signature SolidWorks viewport backdrop: a soft vertical gradient from
-// medium blue-gray at the top to a darker blue-gray at the bottom. Built
-// once and cached (module-level singleton) since the gradient itself never
-// changes - only whether it's the active scene.background does. Left at
-// THREE's default UV mapping (not an environment/reflection mapping) so it
-// renders as a fixed 2D backdrop that fills the viewport regardless of
-// camera orientation, matching the real SolidWorks look - an equirectangular
-// mapping would instead wrap it around the view like a reflection
-// environment and make it shift as the camera orbits.
-export function getSolidworksBackgroundTexture(): THREE.CanvasTexture {
-  if (!solidworksBackgroundTexture) {
+// The viewport backdrop of a theme: its vertical gradient, built once per
+// theme and cached. Left at THREE's default UV mapping (not an environment/
+// reflection mapping) so it renders as a fixed 2D backdrop that fills the
+// viewport whatever the camera orientation - an equirectangular mapping
+// would wrap it around the view and make it shift as the camera orbits.
+export function getThemeBackgroundTexture(theme: Theme): THREE.CanvasTexture {
+  let texture = backgroundTextures.get(theme)
+  if (!texture) {
     const canvas = document.createElement('canvas')
     canvas.width = 2
     canvas.height = 512
     const ctx = canvas.getContext('2d')
     if (ctx) {
+      const [top, bottom] = THEME_COLORS[theme].canvasGradient
       const gradient = ctx.createLinearGradient(0, 0, 0, 512)
-      gradient.addColorStop(0, '#8899aa')
-      gradient.addColorStop(1, '#667788')
+      gradient.addColorStop(0, top)
+      gradient.addColorStop(1, bottom)
       ctx.fillStyle = gradient
       ctx.fillRect(0, 0, 2, 512)
     }
-    solidworksBackgroundTexture = new THREE.CanvasTexture(canvas)
+    texture = new THREE.CanvasTexture(canvas)
+    texture.colorSpace = THREE.SRGBColorSpace
+    backgroundTextures.set(theme, texture)
   }
-  return solidworksBackgroundTexture
+  return texture
 }

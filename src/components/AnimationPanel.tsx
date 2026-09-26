@@ -234,7 +234,7 @@ export function AnimationPanel() {
                   type="number"
                   value={preciseAngle}
                   onChange={(e) => setPreciseAngle(Number(e.target.value))}
-                  className="w-16 rounded border border-[var(--border-light)] bg-[#0f0f1e] px-1.5 py-1 text-right text-xs text-slate-200"
+                  className="w-16 rounded border border-[var(--border-light)] bg-[var(--bg-input)] px-1.5 py-1 text-right text-xs text-slate-200"
                 />
                 °
               </label>
@@ -270,7 +270,7 @@ export function AnimationPanel() {
                   type="number"
                   value={translateDistance}
                   onChange={(e) => setTranslateDistance(Number(e.target.value))}
-                  className="w-16 rounded border border-[var(--border-light)] bg-[#0f0f1e] px-1.5 py-1 text-right text-xs text-slate-200"
+                  className="w-16 rounded border border-[var(--border-light)] bg-[var(--bg-input)] px-1.5 py-1 text-right text-xs text-slate-200"
                 />
                 mm
               </label>

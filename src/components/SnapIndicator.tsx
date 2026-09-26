@@ -86,8 +86,8 @@ export function SnapIndicator({
   // Touch has no hover to read a small label at leisure - bigger, bolder,
   // more opaque so it's legible at arm's length with a finger nearby.
   const labelClass = isTouch
-    ? 'rounded border border-white/10 bg-[#16162a]/98 px-2.5 py-1.5 text-base font-bold shadow-lg'
-    : 'rounded border border-white/10 bg-[#16162a]/90 px-2 py-1 text-xs shadow-lg'
+    ? 'rounded border border-white/10 bg-[var(--bg-panel)]/98 px-2.5 py-1.5 text-base font-bold shadow-lg'
+    : 'rounded border border-white/10 bg-[var(--bg-panel)]/90 px-2 py-1 text-xs shadow-lg'
 
   return (
     <group>

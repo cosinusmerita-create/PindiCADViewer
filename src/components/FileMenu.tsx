@@ -223,7 +223,7 @@ export function FileMenu({ variant = 'toolbar' }: { variant?: 'toolbar' | 'menub
                 value={projectName}
                 onChange={(e) => setProjectName(e.target.value)}
                 placeholder="Optionnel..."
-                className="w-full rounded border border-[var(--border-light)] bg-[#0f0f1e] px-2 py-1 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                className="w-full rounded border border-[var(--border-light)] bg-[var(--bg-input)] px-2 py-1 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-1 focus:ring-sky-500"
               />
             </div>
             <div className="my-1 h-px bg-white/5" />
@@ -315,7 +315,7 @@ export function FileMenu({ variant = 'toolbar' }: { variant?: 'toolbar' | 'menub
             </button>
 
             {shareOpen && (
-              <div className="border-t border-[var(--border-light)] bg-[#0f0f1e] py-1">
+              <div className="border-t border-[var(--border-light)] bg-[var(--bg-input)] py-1">
                 <button
                   onClick={handleCopyLink}
                   className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-400 hover:bg-white/5 hover:text-slate-200"

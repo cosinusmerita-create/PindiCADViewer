@@ -67,8 +67,8 @@ function Arrow({ tip, direction, size }: { tip: THREE.Vector3; direction: THREE.
 
 function labelClass(isTouch: boolean) {
   return isTouch
-    ? 'rounded border border-white/10 bg-[#16162a]/98 px-2.5 py-1.5 text-center text-base font-bold shadow-lg'
-    : 'rounded border border-white/10 bg-[#16162a]/90 px-2 py-1 text-center text-xs shadow-lg'
+    ? 'rounded border border-white/10 bg-[var(--bg-panel)]/98 px-2.5 py-1.5 text-center text-base font-bold shadow-lg'
+    : 'rounded border border-white/10 bg-[var(--bg-panel)]/90 px-2 py-1 text-center text-xs shadow-lg'
 }
 
 function DistanceMeasurement({

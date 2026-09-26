@@ -154,7 +154,7 @@ export function AnimationAssistant() {
           }}
           disabled={!object}
           placeholder={object ? 'Ex: Éclate les pièces sélectionnées...' : 'Charge un modèle pour commencer'}
-          className="min-w-0 flex-1 rounded-md border border-[var(--border-light)] bg-[#0f0f1e] px-2 py-1.5 text-xs text-slate-200 disabled:opacity-50"
+          className="min-w-0 flex-1 rounded-md border border-[var(--border-light)] bg-[var(--bg-input)] px-2 py-1.5 text-xs text-slate-200 disabled:opacity-50"
         />
         <button
           type="submit"

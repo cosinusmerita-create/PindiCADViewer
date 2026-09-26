@@ -174,7 +174,7 @@ export function DimensionSheetPanel() {
             <select
               value={dimensionTargetNodeId ?? ''}
               onChange={(e) => setDimensionTargetNodeId(e.target.value || null)}
-              className="mb-2 w-full rounded border border-[var(--border-light)] bg-[#0f0f1e] px-2 py-1 text-xs text-slate-200"
+              className="mb-2 w-full rounded border border-[var(--border-light)] bg-[var(--bg-input)] px-2 py-1 text-xs text-slate-200"
             >
               <option value="">Assemblage entier</option>
               {parts.map((p) => (
