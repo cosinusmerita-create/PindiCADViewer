@@ -553,9 +553,11 @@ export function Toolbar() {
           <ToolButton
             icon={Maximize2}
             label="Éclater"
-            title="Vue éclatée"
+            title={isSinglePart ? 'Vue éclatée : il faut un assemblage (au moins 2 pièces)' : 'Vue éclatée'}
             active={explodeFactor > 0}
-            disabled={!object}
+            // Greyed out, not hidden: with one part there is nothing to spread
+            // apart, and the tooltip says why.
+            disabled={!object || isSinglePart}
             onClick={toggleExplode}
           />
           <CollisionButton />

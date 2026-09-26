@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ShieldAlert } from 'lucide-react'
 import { ToolButton } from './ToolButton'
 import { useModelStore } from '../hooks/useModelState'
@@ -20,14 +20,21 @@ export function CollisionButton() {
   const object = useModelStore((s) => s.object)
   const collisionMode = useModelStore((s) => s.collisionMode)
   const setCollisionMode = useModelStore((s) => s.setCollisionMode)
+  const tree = useModelStore((s) => s.tree)
+  // A collision needs two parts to touch: greyed out for a single part.
+  const singlePart = useMemo(() => !!tree && collectMeshes(tree).length < 2, [tree])
 
   return (
     <ToolButton
       icon={ShieldAlert}
       label="Collision"
-      title="Déplacer une pièce avec détection de collision"
+      title={
+        singlePart
+          ? 'Collision : il faut un assemblage (au moins 2 pièces)'
+          : 'Déplacer une pièce avec détection de collision'
+      }
       active={collisionMode}
-      disabled={!object}
+      disabled={!object || (singlePart && !collisionMode)}
       onClick={() => {
         clearCollisionHighlight()
         setCollisionMode(!collisionMode)

@@ -1831,6 +1831,13 @@ export const useModelStore = create<ModelState>((set, get) => ({
         return
       }
       case 'explode': {
+        // Nothing to spread apart with a single part (the Éclater button is
+        // greyed out for the same reason) - say so rather than do nothing.
+        const { tree: currentTree } = get()
+        if (intent.factor > 0 && currentTree && collectMeshes(currentTree).length < 2) {
+          pushMessage('assistant', "Il n'y a qu'une seule pièce ouverte : il n'y a rien à éclater. La vue éclatée sert pour un assemblage.")
+          return
+        }
         get().setExplodeFactor(intent.factor)
         if (intent.target && intent.target !== 'all' && intent.target !== 'selected') {
           const { ids, label } = withTarget(intent.target)
