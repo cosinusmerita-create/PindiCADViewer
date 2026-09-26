@@ -9,9 +9,11 @@ import type {
   GroupRecord,
   Measurement,
   ProjectFile,
+  SavedView,
   SerializedAnnotation,
   SerializedMeasurement,
 } from '../types/model'
+import type { LightingSettings } from './lighting'
 
 export const PROJECT_FILE_VERSION = '1.0'
 
@@ -130,6 +132,9 @@ export interface BuildProjectFileInput {
   clippingAxis: ClippingAxis
   clippingPosition: number
   clippingFlipped: boolean
+  lighting: LightingSettings | null
+  fov: number
+  savedViews: SavedView[]
   annotations: Annotation[]
   embeddedSource?: EmbeddedSource
 }
@@ -153,7 +158,10 @@ export function buildProjectFile(input: BuildProjectFileInput): ProjectFile {
     ...(input.selection && input.selection.length > 0 ? { selection: input.selection } : {}),
     ...(input.print ? { print: input.print } : {}),
     measurements: input.measurements.map(serializeMeasurement),
-    clippingPlane: { active: input.clippingEnabled, axis: input.clippingAxis, position: input.clippingPosition },
+    clippingPlane: { active: input.clippingEnabled, axis: input.clippingAxis, position: input.clippingPosition, flipped: input.clippingFlipped },
+    ...(input.lighting ? { lighting: input.lighting } : {}),
+    fov: input.fov,
+    ...(input.savedViews.length > 0 ? { savedViews: input.savedViews } : {}),
     animations: [],
     annotations: input.annotations.map(serializeAnnotation),
     ...(input.embeddedSource ? { embeddedSource: input.embeddedSource } : {}),
@@ -243,6 +251,9 @@ export function parseProjectFile(text: string): ProjectFile {
     print: data.print && typeof data.print === 'object' && !Array.isArray(data.print) ? data.print : undefined,
     measurements: data.measurements ?? [],
     clippingPlane: data.clippingPlane ?? { active: false, axis: 'x', position: 0 },
+    lighting: data.lighting && typeof data.lighting === 'object' ? data.lighting : undefined,
+    fov: typeof data.fov === 'number' ? data.fov : undefined,
+    savedViews: Array.isArray(data.savedViews) ? data.savedViews : undefined,
     animations: data.animations ?? [],
     annotations: data.annotations ?? [],
     embeddedSource: isEmbeddedSource(data.embeddedSource) ? data.embeddedSource : undefined,

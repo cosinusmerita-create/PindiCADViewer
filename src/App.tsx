@@ -13,6 +13,7 @@ import { StatusBar } from './components/StatusBar'
 import { ContextMenu } from './components/ContextMenu'
 import { PipetteCursor } from './components/PipetteCursor'
 import { MeasurementsPanel } from './components/MeasurementsPanel'
+import { LightCameraPanel } from './components/LightCameraPanel'
 import { AnimationPanel } from './components/AnimationPanel'
 import { DimensionSheetPanel } from './components/DimensionSheetPanel'
 import { AnnotationPopup } from './components/AnnotationPopup'
@@ -274,6 +275,7 @@ function App() {
           <ModelInfoPanel />
           <PrintPieceInfo />
           <MeasurementsPanel />
+          <LightCameraPanel />
         </main>
         <AnimationPanel />
         <DimensionSheetPanel />

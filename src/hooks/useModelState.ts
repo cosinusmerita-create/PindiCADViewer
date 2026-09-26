@@ -17,6 +17,7 @@ import type {
   ProjectFile,
   ScreenRect,
   ResetSignal,
+  SavedView,
   Theme,
   TimedAnimationKind,
   TimedAnimationMode,
@@ -38,6 +39,7 @@ import {
   renameNodeById,
 } from '../utils/componentTree'
 import { randomizeFaceColors } from '../utils/faceColors'
+import { presetLighting, themeLighting, type LightingPreset, type LightingSettings } from '../utils/lighting'
 import { PAINT_COLORS, getRandomPaletteColors } from '../utils/colorPalette'
 import { buildDimensionReport } from '../utils/dimensioning'
 import { clearCollisionHighlight } from '../utils/collisionFeedback'
@@ -227,6 +229,12 @@ interface ModelState {
   captureFourViews: (() => Promise<Record<'iso' | 'front' | 'top' | 'right', string>>) | null
   getCameraState: (() => CameraState) | null
   applyCameraState: ((state: CameraState) => void) | null
+  // "Lumières et caméra" panel (LightCameraPanel.tsx). lighting null = the
+  // theme's own rig; cameraFov = perspective camera's vertical angle of view.
+  lightCameraOpen: boolean
+  lighting: LightingSettings | null
+  cameraFov: number
+  savedViews: SavedView[]
   capturePng: ((transparent: boolean) => string) | null
   getPartScreenPositions: (() => { id: string; x: number; y: number }[]) | null
   setModel: (
@@ -365,6 +373,14 @@ interface ModelState {
   setCaptureFourViews: (fn: (() => Promise<Record<'iso' | 'front' | 'top' | 'right', string>>) | null) => void
   setGetCameraState: (fn: (() => CameraState) | null) => void
   setApplyCameraState: (fn: ((state: CameraState) => void) | null) => void
+  setLightCameraOpen: (open: boolean) => void
+  // Any change turns the preset to "custom" (unless a preset is being applied).
+  setLighting: (patch: Partial<LightingSettings>) => void
+  applyLightingPreset: (preset: Exclude<LightingPreset, 'custom'>) => void
+  setCameraFov: (fov: number) => void
+  saveCurrentView: (name: string) => void
+  removeSavedView: (id: string) => void
+  goToSavedView: (id: string) => void
   setCapturePng: (fn: ((transparent: boolean) => string) | null) => void
   showHelp: boolean
   toggleHelp: () => void
@@ -506,6 +522,10 @@ export const useModelStore = create<ModelState>((set, get) => ({
   captureFourViews: null,
   getCameraState: null,
   applyCameraState: null,
+  lightCameraOpen: false,
+  lighting: null,
+  cameraFov: 45,
+  savedViews: [],
   capturePng: null,
   getPartScreenPositions: null,
   showHelp: false,
@@ -545,6 +565,9 @@ export const useModelStore = create<ModelState>((set, get) => ({
       // Every opened part appears standing on the grid (centred under it,
       // see Viewer3D's gridConfig); the Grille button / G key hides it.
       showGrid: true,
+      // Views remembered on another model mean nothing here; lighting and
+      // angle of view are the user's taste and carry over.
+      savedViews: [],
       customColors: {},
       customNames: {},
       paletteOverride: null,
@@ -1496,6 +1519,29 @@ export const useModelStore = create<ModelState>((set, get) => ({
   setCaptureFourViews: (captureFourViews) => set({ captureFourViews }),
   setGetCameraState: (getCameraState) => set({ getCameraState }),
   setApplyCameraState: (applyCameraState) => set({ applyCameraState }),
+  setLightCameraOpen: (lightCameraOpen) => set({ lightCameraOpen }),
+  setLighting: (patch) => {
+    const { lighting, theme, displayMode } = get()
+    const base = lighting ?? themeLighting(theme, displayMode === 'realistic')
+    set({ lighting: { ...base, preset: 'custom', ...patch }, hasUnsavedChanges: true })
+  },
+  applyLightingPreset: (preset) =>
+    set({ lighting: preset === 'theme' ? null : presetLighting(preset, get().theme), hasUnsavedChanges: true }),
+  setCameraFov: (cameraFov) => set({ cameraFov: Math.min(90, Math.max(10, cameraFov)), hasUnsavedChanges: true }),
+  saveCurrentView: (name) => {
+    const camera = get().getCameraState?.()
+    if (!camera) return
+    const view: SavedView = { id: `v${Date.now().toString(36)}`, name, camera, fov: get().cameraFov }
+    set((state) => ({ savedViews: [...state.savedViews, view], hasUnsavedChanges: true }))
+  },
+  removeSavedView: (id) =>
+    set((state) => ({ savedViews: state.savedViews.filter((v) => v.id !== id), hasUnsavedChanges: true })),
+  goToSavedView: (id) => {
+    const view = get().savedViews.find((v) => v.id === id)
+    if (!view) return
+    set({ cameraFov: view.fov })
+    get().applyCameraState?.(view.camera)
+  },
   setCapturePng: (capturePng) => set({ capturePng }),
 
   // Applies every setting from a loaded .pindi project onto the currently
@@ -1572,7 +1618,12 @@ export const useModelStore = create<ModelState>((set, get) => ({
     const selection = (project.selection ?? []).filter((id) => currentTree && findNodeById(currentTree, id))
     if (selection.length > 0) set({ selectedNodeIds: selection, selectionAnchorId: selection[0] })
     restorePrintState(project.print)
-    set({ hasUnsavedChanges: false })
+    set({
+      lighting: project.lighting ?? null,
+      cameraFov: project.fov ?? get().cameraFov,
+      savedViews: project.savedViews ?? [],
+      hasUnsavedChanges: false,
+    })
 
     state.applyCameraState?.(project.camera)
   },

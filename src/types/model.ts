@@ -1,3 +1,4 @@
+import type { LightingSettings } from '../utils/lighting'
 import type * as THREE from 'three'
 
 export type DisplayMode =
@@ -179,6 +180,17 @@ export interface CameraState {
   position: [number, number, number]
   target: [number, number, number]
   zoom: number
+  // Camera "up" (the top view turns it). Absent in projects saved before the
+  // "Lumières et caméra" panel: the camera's current up is then kept.
+  up?: [number, number, number]
+}
+
+// A camera position remembered from the "Lumières et caméra" panel (Caméra tab).
+export interface SavedView {
+  id: string
+  name: string
+  camera: CameraState
+  fov: number
 }
 
 // A measurement with every THREE.Vector3 flattened to a plain [x,y,z]
@@ -259,6 +271,11 @@ export interface ProjectFile {
   print?: Record<string, unknown>
   measurements: SerializedMeasurement[]
   clippingPlane: ProjectClippingState
+  // "Lumières et caméra" panel: lighting (absent = the theme's), camera
+  // angle of view (degrees) and remembered views.
+  lighting?: LightingSettings
+  fov?: number
+  savedViews?: SavedView[]
   animations: unknown[]
   annotations: SerializedAnnotation[]
   embeddedSource?: EmbeddedSource

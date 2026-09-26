@@ -9,7 +9,8 @@ import {
 } from 'react'
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { X } from 'lucide-react'
-import { Environment, GizmoHelper, GizmoViewport, Grid, OrbitControls } from '@react-three/drei'
+import { GizmoHelper, GizmoViewport, Grid, OrbitControls } from '@react-three/drei'
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { EffectComposer, Outline } from '@react-three/postprocessing'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import * as THREE from 'three'
@@ -47,6 +48,7 @@ import { SnapIndicator } from './SnapIndicator'
 import { AutoDimensions } from './AutoDimensions'
 import { Annotations } from './Annotations'
 import { THEME_COLORS, getSolidworksBackgroundTexture } from '../utils/themeColors'
+import { REALISTIC_FILL, REALISTIC_KEY, directionFromAngles, fillAngles } from '../utils/lighting'
 import { FLUID_TYPES, type FlowFluidType } from '../utils/fluidTypes'
 import {
   circleTrajectoryPointAt,
@@ -519,15 +521,45 @@ function AnimationController() {
   return <CollisionMover registry={registry} />
 }
 
+// Reflections of the realistic mode. This used to be drei's
+// <Environment preset="warehouse">, which DOWNLOADS an HDR image from a CDN
+// every time: the whole scene went blank while it loaded (it suspends the
+// Canvas' <Suspense>), and offline - the desktop app's normal case - the mode
+// simply failed. three's RoomEnvironment is a small procedural studio
+// generated on the GPU in a few milliseconds: no network, same look anywhere.
+function RealisticEnvironment() {
+  const gl = useThree((state) => state.gl)
+  const scene = useThree((state) => state.scene)
+  useEffect(() => {
+    const pmrem = new THREE.PMREMGenerator(gl)
+    const room = new RoomEnvironment()
+    const texture = pmrem.fromScene(room, 0.04).texture
+    // Mutating the scene is the idiomatic r3f way (see the background effect).
+    scene.environment = texture
+    scene.environmentIntensity = 0.35
+    return () => {
+      if (scene.environment === texture) scene.environment = null
+      texture.dispose()
+      room.dispose()
+      pmrem.dispose()
+    }
+  }, [gl, scene])
+  return null
+}
+
 function Scene() {
   const controlsRef = useRef<OrbitControlsImpl | null>(null)
   const keyLightRef = useRef<THREE.DirectionalLight | null>(null)
+  const fillLightRef = useRef<THREE.DirectionalLight | null>(null)
   const { camera, gl, scene, size } = useThree()
   const object = useModelStore((s) => s.object)
   const boundingBox = useModelStore((s) => s.boundingBox)
   const tree = useModelStore((s) => s.tree)
   const displayMode = useModelStore((s) => s.displayMode)
   const theme = useModelStore((s) => s.theme)
+  const lighting = useModelStore((s) => s.lighting)
+  const cameraFov = useModelStore((s) => s.cameraFov)
+  const realistic = displayMode === 'realistic'
   const showGrid = useModelStore((s) => s.showGrid)
   const setResetView = useModelStore((s) => s.setResetView)
   const setGoToView = useModelStore((s) => s.setGoToView)
@@ -634,6 +666,66 @@ function Scene() {
     })
   }, [object, displayMode, theme])
 
+  // "Lumières et caméra" panel. lighting null = the theme's fixed rig; else
+  // the key light sits at azimuth/elevation around the part - or, with
+  // followCamera, relative to the view, which is why this runs every frame
+  // (cheap: two vector updates). Directional lights only care about the
+  // direction; the distance just keeps the shadow camera outside the part.
+  //
+  // Both lights aim at the part's centre from 3 radii away, whatever the
+  // model's scale. The themes' fixed rig ([6, 10, 8]...) is only used as a
+  // DIRECTION: taken as a position it sat inside any part measured in mm,
+  // which broke the realistic mode's shadows (light inside the geometry).
+  const lightDirection = useMemo(() => new THREE.Vector3(), [])
+  const lightFrame = useMemo(() => {
+    const sphere = boundingBox ? boundingBox.getBoundingSphere(new THREE.Sphere()) : new THREE.Sphere(new THREE.Vector3(), 5)
+    const radius = Math.max(sphere.radius, 1e-3)
+    return { center: sphere.center.clone(), radius, distance: radius * 3 }
+  }, [boundingBox])
+  useFrame(({ camera: frameCamera }) => {
+    const key = keyLightRef.current
+    const fill = fillLightRef.current
+    if (!key || !fill) return
+    const { center, distance } = lightFrame
+    const place = (light: THREE.DirectionalLight, direction: THREE.Vector3) => {
+      light.position.copy(center).addScaledVector(direction.normalize(), distance)
+      light.target.position.copy(center)
+      light.target.updateMatrixWorld()
+    }
+    if (!lighting && realistic) {
+      // The themes' key light comes from almost exactly the default iso
+      // camera's side, so every visible face got the same light and the
+      // realistic render looked flat. Studio placement instead: key from the
+      // upper left, fill grazing the right side - top, front and right faces
+      // now read as three different tones.
+      place(key, directionFromAngles(REALISTIC_KEY.azimuth, REALISTIC_KEY.elevation, lightDirection))
+      place(fill, directionFromAngles(REALISTIC_FILL.azimuth, REALISTIC_FILL.elevation, lightDirection))
+      key.color.set(0xffffff)
+      return
+    }
+    if (!lighting) {
+      place(key, lightDirection.set(...THEME_COLORS[theme].keyLightPosition))
+      place(fill, lightDirection.set(...THEME_COLORS[theme].fillLightPosition))
+      key.color.set(0xffffff)
+      return
+    }
+    const aim = (light: THREE.DirectionalLight, azimuth: number, elevation: number) => {
+      directionFromAngles(azimuth, elevation, lightDirection)
+      if (lighting.followCamera) lightDirection.applyQuaternion(frameCamera.quaternion)
+      place(light, lightDirection)
+    }
+    aim(key, lighting.keyAzimuth, lighting.keyElevation)
+    const fillDir = fillAngles(lighting)
+    aim(fill, fillDir.azimuth, fillDir.elevation)
+    key.color.set(lighting.keyColor)
+  })
+
+  useEffect(() => {
+    const perspectiveCamera = camera as THREE.PerspectiveCamera
+    perspectiveCamera.fov = cameraFov
+    perspectiveCamera.updateProjectionMatrix()
+  }, [camera, cameraFov])
+
   // Shadows are only meaningful in realistic mode - size the key light's
   // shadow frustum to the current model so it isn't tuned for one scale
   // (a small bracket vs. a whole assembly) and left wrong for another.
@@ -645,19 +737,27 @@ function Scene() {
     light.castShadow = isRealistic
     if (!isRealistic) return
 
-    const radius = boundingBox ? boundingBox.getBoundingSphere(new THREE.Sphere()).radius : 5
-    const extent = Math.max(radius * 1.5, 1)
+    // The light sits 3 radii from the centre (see lightFrame): the frustum
+    // spans the part plus the ground shadow around it, and its depth range
+    // hugs the scene so the shadow map keeps its precision at any scale.
+    const { radius, distance } = lightFrame
+    const extent = radius * 2
     const cam = light.shadow.camera
     cam.left = -extent
     cam.right = extent
     cam.top = extent
     cam.bottom = -extent
-    cam.near = 0.1
-    cam.far = extent * 6
+    cam.near = Math.max(distance - radius * 3, radius * 0.01)
+    cam.far = distance + radius * 3
     cam.updateProjectionMatrix()
-    light.shadow.mapSize.set(1024, 1024)
-    light.shadow.bias = -0.0005
-  }, [displayMode, boundingBox])
+    light.shadow.mapSize.set(2048, 2048)
+    // normalBias is in world units (~2 shadow-map texels): removes the
+    // striped "acne" on flat faces without detaching shadows from the part.
+    light.shadow.bias = -0.0002
+    light.shadow.normalBias = ((extent * 2) / 2048) * 2
+    light.shadow.map?.dispose()
+    light.shadow.map = null
+  }, [displayMode, lightFrame])
 
   useEffect(() => {
     const goToView = (preset: ViewPreset) => {
@@ -713,6 +813,7 @@ function Scene() {
         position: camera.position.toArray() as [number, number, number],
         target: (controls?.target ?? new THREE.Vector3()).toArray() as [number, number, number],
         zoom: perspectiveCamera.zoom,
+        up: camera.up.toArray() as [number, number, number],
       }
     }
     setGetCameraState(getCameraState)
@@ -723,6 +824,7 @@ function Scene() {
       const controls = controlsRef.current
       const perspectiveCamera = camera as THREE.PerspectiveCamera
       camera.position.set(...state.position)
+      if (state.up) camera.up.set(...state.up)
       if (controls) {
         controls.target.set(...state.target)
         controls.update()
@@ -1192,14 +1294,36 @@ function Scene() {
 
   return (
     <>
-      <ambientLight intensity={THEME_COLORS[theme].ambientIntensity} />
+      {/* Realistic mode: the environment already lights every face evenly,
+          so the flat ambient light is mostly dropped (on top of it, it washed
+          the part out to a uniform pale gray) and the key light carries the
+          relief. The panel's settings keep their meaning, just rescaled. */}
+      <ambientLight intensity={(lighting?.ambient ?? THEME_COLORS[theme].ambientIntensity) * (realistic ? 0.2 : 1)} />
+      {/* Positions and color are set every frame (see the lighting useFrame above). */}
       <directionalLight
         ref={keyLightRef}
-        position={THEME_COLORS[theme].keyLightPosition}
-        intensity={THEME_COLORS[theme].keyLightIntensity}
+        intensity={(lighting?.keyIntensity ?? THEME_COLORS[theme].keyLightIntensity) * (realistic ? 1.6 : 1)}
       />
-      <directionalLight position={THEME_COLORS[theme].fillLightPosition} intensity={THEME_COLORS[theme].fillLightIntensity} />
-      {displayMode === 'realistic' && <Environment preset="warehouse" />}
+      <directionalLight
+        ref={fillLightRef}
+        intensity={(lighting?.fillIntensity ?? THEME_COLORS[theme].fillLightIntensity) * (realistic ? 0.45 : 1)}
+      />
+      {displayMode === 'realistic' && (
+        <>
+          <RealisticEnvironment />
+          {/* Catches the part's shadow on the ground (the grid's level) -
+              only the shadow is drawn, the plane itself stays invisible. */}
+          <mesh
+            rotation-x={-Math.PI / 2}
+            position={[gridConfig.x, gridConfig.y - lightFrame.radius * 0.002, gridConfig.z]}
+            receiveShadow
+            renderOrder={-1}
+          >
+            <planeGeometry args={[lightFrame.radius * 8, lightFrame.radius * 8]} />
+            <shadowMaterial transparent opacity={theme === 'light' ? 0.18 : 0.35} depthWrite={false} />
+          </mesh>
+        </>
+      )}
       {object && (
         <primitive
           object={object}

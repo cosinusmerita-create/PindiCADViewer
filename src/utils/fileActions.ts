@@ -99,6 +99,9 @@ export async function saveProjectFile(pushToast: (message: string) => void) {
     clippingAxis: state.clippingAxis,
     clippingPosition: state.clippingPosition,
     clippingFlipped: state.clippingFlipped,
+    lighting: state.lighting,
+    fov: state.cameraFov,
+    savedViews: state.savedViews,
     annotations: state.annotations,
     embeddedSource,
   })

@@ -390,7 +390,18 @@ export function HelpPanel() {
                   ['Filaire', '3', 'Lignes uniquement'],
                   ['Lignes cachées visibles', '4', 'Semi-transparent, toutes arêtes'],
                   ['Lignes cachées supprimées', '5', 'Surfaces blanches, arêtes visibles'],
-                  ['Rendu réaliste', '6', 'Matériau physique avec reflets'],
+                  ['Rendu réaliste', '6', 'Matériau physique avec reflets, ombres et ombre portée au sol ; fonctionne hors connexion'],
+                ]}
+              />
+              <SubTitle>Lumières et caméra</SubTitle>
+              <List
+                items={[
+                  "Bouton « Lumières et caméra » (groupe Affichage) : un panneau s'ouvre en haut à droite de la vue 3D, avec deux onglets",
+                  'Lumières : préréglages Par défaut, Studio, Doux, Contrasté (fait ressortir les reliefs), Atelier (lumière chaude) et Frontale ; puis intensité, direction (tourner autour, hauteur) et teinte de la lumière principale, lumière d’appoint et lumière ambiante. Toute retouche passe en « Personnalisé »',
+                  '« Lampe frontale » : la lumière tourne avec la caméra, la face regardée reste éclairée ; la direction se règle alors par rapport à la vue',
+                  'Caméra : tourner autour de la pièce, hauteur, distance et angle de vue (petit angle = presque sans perspective) ; les curseurs suivent aussi la souris',
+                  'Coordonnées exactes de la caméra et du point visé (mm, validez avec Entrée) ; « Viser la pièce » ou « Viser la sélection » recentre sans changer l’angle',
+                  'Vues mémorisées : nommez puis « Mémoriser » ; un clic sur le nom y revient. Éclairage, angle de vue et vues mémorisées sont enregistrés dans le .pindi',
                 ]}
               />
             </section>

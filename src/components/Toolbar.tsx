@@ -31,6 +31,7 @@ import {
   PencilRuler,
   Ruler,
   Square,
+  Sun,
   SquareDashed,
   Waves,
   Wind,
@@ -190,6 +191,9 @@ export function Toolbar() {
     return meshes.length === 1 && faceRegionsFor(meshes[0]) !== null
   }, [tree])
   const isSinglePart = useMemo(() => !!tree && collectMeshes(tree).length === 1, [tree])
+
+  const lightCameraOpen = useModelStore((s) => s.lightCameraOpen)
+  const setLightCameraOpen = useModelStore((s) => s.setLightCameraOpen)
 
   const isAllTransparent = useMemo(() => {
     if (!tree) return false
@@ -514,6 +518,14 @@ export function Toolbar() {
             }
             disabled={!object || colorMode !== 'palette'}
             onClick={randomizePaletteColors}
+          />
+          <ToolButton
+            icon={Sun}
+            label="Lumières et caméra"
+            title="Régler l'éclairage et la position de la caméra"
+            active={lightCameraOpen}
+            disabled={!object}
+            onClick={() => setLightCameraOpen(!lightCameraOpen)}
           />
         </ToolGroup>
 
