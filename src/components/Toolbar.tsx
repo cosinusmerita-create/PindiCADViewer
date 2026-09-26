@@ -44,12 +44,12 @@ import { OPEN_FILE_ACCEPT, useFileLoader } from '../hooks/useFileLoader'
 import { collectMeshes, collectNodeIds } from '../utils/componentTree'
 import { faceRegionsFor } from '../utils/faceColors'
 import { FLUID_TYPES, type FlowFluidType } from '../utils/fluidTypes'
-import { PAINT_COLORS } from '../utils/colorPalette'
 import { FileMenu } from './FileMenu'
 import { ExplodeControls } from './ExplodeControls'
 import { CollisionButton, CollisionOptions } from './CollisionControls'
 import { Divider, ToolButton, ToolGroup } from './ToolButton'
 import { ViewActions } from './ViewActions'
+import { PipetteColors } from './PipetteColors'
 import { AnimationAssistantToggle } from './AnimationAssistant'
 import type { DisplayMode, NavMode, ViewPreset } from '../types/model'
 
@@ -105,8 +105,6 @@ export function Toolbar() {
   const object = useModelStore((s) => s.object)
   const clearModel = useModelStore((s) => s.clearModel)
   const pipetteMode = useModelStore((s) => s.pipetteMode)
-  const paintColor = useModelStore((s) => s.paintColor)
-  const setPaintColor = useModelStore((s) => s.setPaintColor)
   const togglePipetteMode = useModelStore((s) => s.togglePipetteMode)
   const measureMode = useModelStore((s) => s.measureMode)
   const toggleMeasureMode = useModelStore((s) => s.toggleMeasureMode)
@@ -574,42 +572,7 @@ export function Toolbar() {
       {/* Row 3 - options of whichever tools are active (only shown then) */}
       {hasContextStrip && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[var(--border-light)] bg-black/10 px-4 py-2">
-          {pipetteMode && (
-            <span className="flex shrink-0 flex-wrap items-center gap-2 text-xs text-sky-300">
-              {/* Full colour picker: the swatch itself opens the system picker. */}
-              <label
-                title="Choisir une couleur"
-                className="relative h-6 w-6 shrink-0 cursor-pointer overflow-hidden rounded-md border border-white/50 shadow"
-                style={{ backgroundColor: paintColor }}
-              >
-                <input
-                  type="color"
-                  value={paintColor}
-                  onChange={(e) => setPaintColor(e.target.value)}
-                  className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-                />
-              </label>
-              <span className="flex items-center gap-1">
-                {PAINT_COLORS.map(({ value, label }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    title={label}
-                    onClick={() => setPaintColor(value)}
-                    className={`h-4 w-4 shrink-0 rounded-full border transition-transform hover:scale-125 ${
-                      paintColor.toLowerCase() === value ? 'border-white ring-2 ring-sky-400' : 'border-white/30'
-                    }`}
-                    style={{ backgroundColor: value }}
-                  />
-                ))}
-              </span>
-              <span>
-                {isMobile
-                  ? 'Choisissez la couleur puis touchez les pièces à peindre'
-                  : 'Choisissez la couleur puis cliquez sur les pièces à peindre (clic sur une pièce sélectionnée = toute la sélection)'}
-              </span>
-            </span>
-          )}
+          {pipetteMode && <PipetteColors isMobile={isMobile} />}
 
           {manualDimMode && (
             <span className="flex shrink-0 items-center gap-2 text-xs text-sky-300">

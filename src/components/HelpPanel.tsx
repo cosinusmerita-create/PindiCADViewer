@@ -477,7 +477,8 @@ export function HelpPanel() {
               <List
                 items={[
                   'Activez Pipette dans la toolbar : une barre de couleurs apparaît sous les outils',
-                  'Choisissez la couleur : une pastille de la palette rapide, ou le grand carré pour toutes les couleurs',
+                  'Choisissez la couleur : une pastille de la palette rapide, le « Nuancier » (tableau de toutes les teintes, du plus clair au plus foncé, plus les gris), ou le grand carré pour une couleur libre',
+                  '« Adoucir » (0 à 100 %) rend la couleur moins vive et plus claire en gardant sa teinte ; le carré montre la couleur réellement peinte, et les pastilles comme le nuancier s’affichent déjà adoucis',
                   'Cliquez sur les pièces à peindre (fonctionne aussi avec une seule pièce) ; clic sur une pièce sélectionnée = toute la sélection',
                   'La couleur choisie est gardée pour la prochaine utilisation',
                   'Escape ou clic droit = quitter le mode',
