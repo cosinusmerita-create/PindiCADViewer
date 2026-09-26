@@ -39,6 +39,7 @@ import {
   renameNodeById,
 } from '../utils/componentTree'
 import { randomizeFaceColors } from '../utils/faceColors'
+import { DEFAULT_OPENING_PREFS, loadOpeningPrefs, saveOpeningPrefs, type OpeningPrefs } from '../utils/openingPrefs'
 import { presetLighting, themeLighting, type LightingPreset, type LightingSettings } from '../utils/lighting'
 import { PAINT_COLORS, getRandomPaletteColors } from '../utils/colorPalette'
 import { buildDimensionReport } from '../utils/dimensioning'
@@ -119,6 +120,12 @@ interface ModelState {
   // the user orbits away - kept up to date by Viewer3D's OrbitControls.
   currentView: ViewPreset | null
   setCurrentView: (view: ViewPreset | null) => void
+  // "Outils > Options" (OptionsDialog.tsx): how a newly opened file is shown.
+  openingPrefs: OpeningPrefs
+  setOpeningPrefs: (patch: Partial<OpeningPrefs>) => void
+  resetOpeningPrefs: () => void
+  optionsOpen: boolean
+  setOptionsOpen: (open: boolean) => void
   // SOLIDWORKS/eDrawings-style navigation tools (Toolbar, after VUES): what a
   // left-drag does in the viewport. 'select' keeps the historical behaviour
   // (click selects, drag orbits); in the other modes a click never selects.
@@ -468,6 +475,8 @@ export const useModelStore = create<ModelState>((set, get) => ({
   resetView: null,
   goToView: null,
   currentView: null,
+  openingPrefs: loadOpeningPrefs(),
+  optionsOpen: false,
   navMode: 'select',
   zoomWindowMode: false,
   zoomToFit: null,
@@ -566,10 +575,17 @@ export const useModelStore = create<ModelState>((set, get) => ({
     // collision highlight (materials of the old meshes are simply dropped).
     clearCollisionHighlight()
 
-    // Newly loaded parts start out gray (see the loaders); bring them in
-    // line with whichever color mode the viewer is currently set to.
+    // How the file opens follows "Outils > Options" (openingPrefs.ts). By
+    // default an assembly opens with "Couleurs par pièce" on (identical parts
+    // share a color, which tells the parts apart at a glance) and a single
+    // part in the plain gray - whatever the previous file used. Newly loaded
+    // parts start out gray (see the loaders), so the mode is applied here. A
+    // .pindi project then restores its own saved look (see loadProject).
+    const prefs = get().openingPrefs
     markSinglePart(tree)
-    applyColorModeToTree(tree, get().colorMode, {}, get().theme)
+    const colorMode: ColorMode = prefs.assemblyColors && collectMeshes(tree).length > 1 ? 'palette' : 'standard'
+    applyColorModeToTree(tree, colorMode, {}, get().theme)
+    const displayMode = prefs.displayMode === 'keep' ? get().displayMode : prefs.displayMode
 
     set({
       object,
@@ -579,9 +595,11 @@ export const useModelStore = create<ModelState>((set, get) => ({
       tree,
       visibility,
       opacity,
-      // Every opened part appears standing on the grid (centred under it,
-      // see Viewer3D's gridConfig); the Grille button / G key hides it.
-      showGrid: true,
+      colorMode,
+      displayMode,
+      // The opened part stands on the grid (centred under it, see Viewer3D's
+      // gridConfig) unless Options says otherwise; Grille button / G key toggle it.
+      showGrid: prefs.grid,
       // Views remembered on another model mean nothing here; lighting and
       // angle of view are the user's taste and carry over.
       savedViews: [],
@@ -634,7 +652,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
       flowPassageCandidates: [],
       flowPassageIndex: 0,
       hasUnsavedChanges: false,
-      openingSnapshot: { tree, displayMode: get().displayMode, colorMode: get().colorMode },
+      openingSnapshot: { tree, displayMode, colorMode },
     })
   },
 
@@ -1555,6 +1573,16 @@ export const useModelStore = create<ModelState>((set, get) => ({
   setCurrentView: (currentView) => {
     if (get().currentView !== currentView) set({ currentView })
   },
+  setOpeningPrefs: (patch) => {
+    const openingPrefs = { ...get().openingPrefs, ...patch }
+    saveOpeningPrefs(openingPrefs)
+    set({ openingPrefs })
+  },
+  resetOpeningPrefs: () => {
+    saveOpeningPrefs(DEFAULT_OPENING_PREFS)
+    set({ openingPrefs: { ...DEFAULT_OPENING_PREFS } })
+  },
+  setOptionsOpen: (optionsOpen) => set({ optionsOpen }),
   setLightCameraOpen: (lightCameraOpen) => set({ lightCameraOpen }),
   setLighting: (patch) => {
     const { lighting, theme, displayMode } = get()

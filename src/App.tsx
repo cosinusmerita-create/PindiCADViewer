@@ -23,6 +23,8 @@ import { PindiSourcePrompt } from './components/PindiSourcePrompt'
 import { CloseConfirmDialog } from './components/CloseConfirmDialog'
 import { GroupNameDialog } from './components/GroupNameDialog'
 import { InstallPrompt } from './components/InstallPrompt'
+import { OptionsDialog } from './components/OptionsDialog'
+import { SplashScreen } from './components/SplashScreen'
 import { AnimationAssistant } from './components/AnimationAssistant'
 import { saveProjectFile, exportTechnicalPdf, requestCloseProject } from './utils/fileActions'
 import { useModelStore, THEME_STORAGE_KEY } from './hooks/useModelState'
@@ -136,6 +138,12 @@ function App() {
       if (e.key === 'F1') {
         e.preventDefault()
         toggleHelp()
+        return
+      }
+      // Ctrl+, : Options (the usual settings shortcut).
+      if (ctrlOrCmd && e.key === ',') {
+        e.preventDefault()
+        useModelStore.getState().setOptionsOpen(true)
         return
       }
       if (ctrlOrCmd && e.key.toLowerCase() === 'o') {
@@ -291,6 +299,8 @@ function App() {
       <CloseConfirmDialog />
       <GroupNameDialog />
       <InstallPrompt />
+      <OptionsDialog />
+      <SplashScreen />
     </div>
   )
 }

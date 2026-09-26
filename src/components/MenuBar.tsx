@@ -23,7 +23,7 @@ const THEMES: { id: Theme; label: string }[] = [
 
 const WEBSITE_URL = 'https://cosinusmerita-create.github.io/PindiCADViewer/'
 
-type MenuId = 'view' | 'help'
+type MenuId = 'view' | 'tools' | 'help'
 
 interface MenuItemProps {
   label: string
@@ -95,7 +95,7 @@ function Dropdown({ id, label, open, setOpen, children }: DropdownProps) {
   )
 }
 
-// The application's own top bar: logo first, then Fichier / Affichage / Aide,
+// The application's own top bar: logo first, then Fichier / Affichage / Outils / Aide,
 // like a CAD program's menu bar. In the desktop app the OS title bar is
 // hidden (see electron/main.js) and this bar takes its place - draggable,
 // with the OS window buttons overlaid on the right.
@@ -110,6 +110,7 @@ export function MenuBar() {
   const theme = useModelStore((s) => s.theme)
   const setTheme = useModelStore((s) => s.setTheme)
   const toggleHelp = useModelStore((s) => s.toggleHelp)
+  const setOptionsOpen = useModelStore((s) => s.setOptionsOpen)
   const [open, setOpen] = useState<MenuId | null>(null)
   const [aboutOpen, setAboutOpen] = useState(false)
 
@@ -177,6 +178,10 @@ export function MenuBar() {
           {THEMES.map((t) => (
             <MenuItem key={t.id} label={t.label} checked={theme === t.id} onClick={() => setTheme(t.id)} />
           ))}
+        </Dropdown>
+
+        <Dropdown id="tools" label="Outils" open={open} setOpen={setOpen}>
+          <MenuItem label="Options…" shortcut="Ctrl+," onClick={() => setOptionsOpen(true)} />
         </Dropdown>
 
         <Dropdown id="help" label="Aide" open={open} setOpen={setOpen}>
