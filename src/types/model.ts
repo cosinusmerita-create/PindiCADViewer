@@ -208,6 +208,8 @@ export interface ProjectClippingState {
   active: boolean
   axis: ClippingAxis
   position: number
+  // Absent from projects saved before the "Inverser le côté" button.
+  flipped?: boolean
 }
 
 // The on-disk shape of a .pindi project save file - a JSON snapshot of

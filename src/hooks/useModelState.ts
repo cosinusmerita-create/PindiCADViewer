@@ -125,6 +125,8 @@ interface ModelState {
   clippingPanelOpen: boolean
   clippingAxis: ClippingAxis
   clippingPosition: number
+  // Keeps the other side of the plane (normal reversed).
+  clippingFlipped: boolean
   contextMenu: ContextMenuState | null
   selectedNodeIds: string[]
   selectionAnchorId: string | null
@@ -262,6 +264,10 @@ interface ModelState {
   setClippingPanelOpen: (open: boolean) => void
   setClippingAxis: (axis: ClippingAxis) => void
   setClippingPosition: (position: number) => void
+  setClippingFlipped: (flipped: boolean) => void
+  // Toolbar "Plan de coupe": one click opens the strip AND cuts, the next
+  // closes it and removes the cut (no separate on/off switch in the strip).
+  toggleClipping: () => void
   openContextMenu: (menu: ContextMenuState) => void
   closeContextMenu: () => void
   selectNode: (id: string | null) => void
@@ -437,6 +443,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
   clippingPanelOpen: false,
   clippingAxis: 'x',
   clippingPosition: 0,
+  clippingFlipped: false,
   contextMenu: null,
   selectedNodeIds: [],
   selectionAnchorId: null,
@@ -546,6 +553,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
       collisionContact: null,
       clippingAxis: 'x',
       clippingPosition: (boundingBox.min.x + boundingBox.max.x) / 2,
+      clippingFlipped: false,
       contextMenu: null,
       selectedNodeIds: [],
       selectionAnchorId: null,
@@ -789,6 +797,14 @@ export const useModelStore = create<ModelState>((set, get) => ({
   setClippingPanelOpen: (clippingPanelOpen) => set({ clippingPanelOpen }),
   setClippingAxis: (clippingAxis) => set({ clippingAxis, hasUnsavedChanges: true }),
   setClippingPosition: (clippingPosition) => set({ clippingPosition, hasUnsavedChanges: true }),
+  setClippingFlipped: (clippingFlipped) => set({ clippingFlipped, hasUnsavedChanges: true }),
+  toggleClipping: () => {
+    const { clippingPanelOpen, clippingEnabled } = get()
+    // Open (or a cut restored from a project with the strip closed) -> close
+    // and uncut; otherwise open and cut straight away.
+    const on = !(clippingPanelOpen || clippingEnabled)
+    set({ clippingPanelOpen: on, clippingEnabled: on, hasUnsavedChanges: true })
+  },
 
   openContextMenu: (contextMenu) => set({ contextMenu }),
   closeContextMenu: () => set({ contextMenu: null }),
@@ -867,6 +883,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
       clippingPanelOpen: false,
       clippingAxis: 'x',
       clippingPosition: (boundingBox.min.x + boundingBox.max.x) / 2,
+      clippingFlipped: false,
       initialTransforms: {},
       animationsPaused: false,
       explodeFactor: 0,
@@ -1510,6 +1527,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
       clippingEnabled: project.clippingPlane.active,
       clippingAxis: project.clippingPlane.axis,
       clippingPosition: project.clippingPlane.position,
+      clippingFlipped: project.clippingPlane.flipped ?? false,
       projectName: project.projectName,
       hasUnsavedChanges: false,
     })

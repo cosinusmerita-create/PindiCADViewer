@@ -296,7 +296,7 @@ export function HelpPanel() {
                   </>,
                   <>
                     <strong className="text-[var(--text-primary)]">Réglages du plan de coupe</strong> — Ils s'affichent sous
-                    la barre d'outils quand vous cliquez sur « Plan de coupe »
+                    la barre d'outils quand vous cliquez sur « Plan de coupe », qui coupe aussitôt la pièce
                   </>,
                   <>
                     <strong className="text-[var(--text-primary)]">Panneau COMPOSANTS (gauche)</strong> — Arborescence des pièces
@@ -495,12 +495,12 @@ export function HelpPanel() {
               <SectionTitle>6. Plan de coupe dynamique</SectionTitle>
               <List
                 items={[
-                  'Cliquez sur le bouton "Plan de coupe" (ciseaux) dans la barre d\'outils : les réglages s\'affichent en dessous',
-                  'Cliquez "Coupe désactivée" pour l\'activer',
-                  'Choisissez l\'axe (X, Y, Z)',
-                  'Déplacez le slider pour positionner le plan (position en mm)',
+                  "Cliquez sur le bouton « Plan de coupe » (ciseaux) dans la barre d'outils : la pièce est coupée aussitôt, au milieu, et les réglages s'affichent en dessous",
+                  "Choisissez l'axe (X, Y, Z)",
+                  'Déplacez le curseur, ou tapez la position en mm puis Entrée',
+                  "« Centrer » replace le plan au milieu de la pièce ; « Inverser le côté » garde l'autre moitié",
                   'La section est remplie (rendu solide, pas de vide)',
-                  'Le bouton reste allumé tant que la coupe est active, même si vous refermez les réglages',
+                  'Pour retirer la coupe : « Retirer la coupe » au bout des réglages, ou un nouveau clic sur « Plan de coupe »',
                 ]}
               />
               <Tip>Astuce : combinez coupe + transparence pour voir l'intérieur d'un assemblage complexe.</Tip>

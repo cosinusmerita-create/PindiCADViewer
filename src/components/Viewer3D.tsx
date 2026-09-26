@@ -294,18 +294,22 @@ function ClippingController() {
   const enabled = useModelStore((s) => s.clippingEnabled)
   const axis = useModelStore((s) => s.clippingAxis)
   const position = useModelStore((s) => s.clippingPosition)
+  const flipped = useModelStore((s) => s.clippingFlipped)
 
   useEffect(() => {
     activeClippingPlanes.length = 0
     if (enabled) {
+      // three.js keeps what lies on the normal's side: reversing the normal
+      // (and the constant with it) keeps the other half at the same position.
+      const s = flipped ? -1 : 1
       activeClippingPlanes.push(
         new THREE.Plane(
-          new THREE.Vector3(axis === 'x' ? 1 : 0, axis === 'y' ? 1 : 0, axis === 'z' ? 1 : 0),
-          -position,
+          new THREE.Vector3(axis === 'x' ? s : 0, axis === 'y' ? s : 0, axis === 'z' ? s : 0),
+          -position * s,
         ),
       )
     }
-  }, [enabled, axis, position])
+  }, [enabled, axis, position, flipped])
 
   useEffect(() => () => {
     activeClippingPlanes.length = 0
@@ -323,7 +327,7 @@ function ClippingController() {
     const plane = activeClippingPlanes[0]
     if (!plane) return
     updateAllSectionCaps(object, plane)
-  }, [object, enabled, axis, position])
+  }, [object, enabled, axis, position, flipped])
 
   return null
 }

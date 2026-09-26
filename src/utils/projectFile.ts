@@ -129,6 +129,7 @@ export interface BuildProjectFileInput {
   clippingEnabled: boolean
   clippingAxis: ClippingAxis
   clippingPosition: number
+  clippingFlipped: boolean
   annotations: Annotation[]
   embeddedSource?: EmbeddedSource
 }

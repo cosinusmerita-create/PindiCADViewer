@@ -13,7 +13,7 @@ export function ViewActions() {
   const customColors = useModelStore((s) => s.customColors)
   const resetAllColors = useModelStore((s) => s.resetAllColors)
   const clippingPanelOpen = useModelStore((s) => s.clippingPanelOpen)
-  const setClippingPanelOpen = useModelStore((s) => s.setClippingPanelOpen)
+  const toggleClipping = useModelStore((s) => s.toggleClipping)
   const clippingEnabled = useModelStore((s) => s.clippingEnabled)
   const restoreOriginalState = useModelStore((s) => s.restoreOriginalState)
   const hasUnsavedChanges = useModelStore((s) => s.hasUnsavedChanges)
@@ -51,10 +51,10 @@ export function ViewActions() {
       <ToolButton
         icon={Scissors}
         label="Plan de coupe"
-        title="Afficher les réglages du plan de coupe"
+        title={clippingPanelOpen || clippingEnabled ? 'Retirer la coupe' : "Couper la pièce (réglages sous la barre d'outils)"}
         active={clippingPanelOpen || clippingEnabled}
         disabled={!object}
-        onClick={() => setClippingPanelOpen(!clippingPanelOpen)}
+        onClick={toggleClipping}
       />
       <ToolButton
         icon={Eraser}
