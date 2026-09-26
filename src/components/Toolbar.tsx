@@ -51,6 +51,7 @@ import { CollisionButton, CollisionOptions } from './CollisionControls'
 import { Divider, ToolButton, ToolGroup } from './ToolButton'
 import { ViewActions } from './ViewActions'
 import { PipetteColors } from './PipetteColors'
+import { ViewCubeIcon } from './ViewCubeIcon'
 import { AnimationAssistantToggle } from './AnimationAssistant'
 import type { DisplayMode, NavMode, ViewPreset } from '../types/model'
 
@@ -68,14 +69,15 @@ const MODES: {
   { id: 'realistic', label: 'Rendu réaliste', shortcut: '6', icon: Gem },
 ]
 
-const VIEWS: { id: ViewPreset; label: string; abbr: string }[] = [
-  { id: 'front', label: 'Face', abbr: 'FA' },
+// `key`: keyboard shortcut (see App.tsx), shown in the tooltip.
+const VIEWS: { id: ViewPreset; label: string; abbr: string; key?: string }[] = [
+  { id: 'front', label: 'Face', abbr: 'FA', key: 'F' },
   { id: 'back', label: 'Arrière', abbr: 'AR' },
   { id: 'left', label: 'Gauche', abbr: 'GA' },
   { id: 'right', label: 'Droite', abbr: 'DR' },
-  { id: 'top', label: 'Dessus', abbr: 'DE' },
+  { id: 'top', label: 'Dessus', abbr: 'DE', key: 'T' },
   { id: 'bottom', label: 'Dessous', abbr: 'SO' },
-  { id: 'iso', label: 'Isométrique', abbr: 'ISO' },
+  { id: 'iso', label: 'Isométrique', abbr: 'ISO', key: 'I' },
 ]
 
 const NAV_TOOLS: { id: NavMode; label: string; icon: ComponentType<{ size?: number }> }[] = [
@@ -98,6 +100,7 @@ export function Toolbar() {
   const displayMode = useModelStore((s) => s.displayMode)
   const setDisplayMode = useModelStore((s) => s.setDisplayMode)
   const goToView = useModelStore((s) => s.goToView)
+  const currentView = useModelStore((s) => s.currentView)
   const navMode = useModelStore((s) => s.navMode)
   const setNavMode = useModelStore((s) => s.setNavMode)
   const zoomWindowMode = useModelStore((s) => s.zoomWindowMode)
@@ -282,21 +285,36 @@ export function Toolbar() {
         {!isMobile && (
           <>
             <Divider />
-            <div className="flex shrink-0 items-center gap-1.5">
-              <span className="mr-0.5 text-[11px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
-                Vues
-              </span>
-              {VIEWS.map(({ id, label, abbr }) => (
-                <button
-                  key={id}
-                  title={label}
-                  disabled={!object}
-                  onClick={() => goToView?.(id)}
-                  className="shrink-0 rounded-md bg-[var(--bg-hover)] px-2.5 py-1 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:pointer-events-none disabled:opacity-30"
-                >
-                  {abbr}
-                </button>
-              ))}
+            {/* The most used control of the viewer: one segmented group (like
+                the navigation tools), a cube icon showing which face each view
+                looks at, and the view the camera is in stays lit. */}
+            <div className="flex shrink-0 items-center gap-2">
+              <span className="text-[11px] font-medium uppercase tracking-wide text-[var(--text-muted)]">Vues</span>
+              <div role="group" aria-label="Vues standard" className="flex items-center gap-0.5 rounded-lg bg-[var(--bg-hover)] p-0.5">
+                {VIEWS.map(({ id, label, abbr, key }, i) => {
+                  const active = currentView === id
+                  return (
+                    <button
+                      key={id}
+                      title={`Vue ${label}${key ? ` (touche ${key})` : ''}`}
+                      aria-label={`Vue ${label}`}
+                      aria-pressed={active}
+                      disabled={!object}
+                      onClick={() => goToView?.(id)}
+                      className={`group flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-semibold tracking-wide transition-all duration-150 active:scale-95 disabled:pointer-events-none disabled:opacity-30 ${
+                        i === VIEWS.length - 1 ? 'ml-1 border-l border-[var(--border-color)] pl-2' : ''
+                      } ${
+                        active
+                          ? 'bg-[var(--bg-active)] text-white shadow-sm'
+                          : 'text-[var(--text-secondary)] hover:bg-[var(--bg-panel)] hover:text-[var(--text-primary)]'
+                      }`}
+                    >
+                      <ViewCubeIcon view={id} active={active} />
+                      {abbr}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
           </>
         )}

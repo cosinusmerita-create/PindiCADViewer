@@ -19,7 +19,7 @@ import { useDevice } from '../hooks/useDevice'
 import { fitCameraToObject } from '../utils/cameraFit'
 import { applyDisplayMode } from '../utils/displayMode'
 import { VIEW_DEFINITIONS, getViewDistance } from '../utils/cameraViews'
-import { animateCameraTo } from '../utils/animateCamera'
+import { animateCameraTo, isCameraAnimating } from '../utils/animateCamera'
 import { collectMeshes, collectPartNodeIds, findNodeById } from '../utils/componentTree'
 import { buildPartGroups } from '../utils/explodeModes'
 import { activeClippingPlanes } from '../utils/clippingPlanes'
@@ -631,14 +631,19 @@ function Scene() {
 
     const perspectiveCamera = camera as THREE.PerspectiveCamera
     fitCameraToObject(perspectiveCamera, controlsRef.current, object)
+    // Every part opens in the iso orientation (see cameraFit.ts).
+    useModelStore.getState().setCurrentView('iso')
 
     const initialPosition = camera.position.clone()
     const initialTarget = controlsRef.current.target.clone()
+    const initialUp = camera.up.clone()
 
     setResetView(() => {
       camera.position.copy(initialPosition)
+      camera.up.copy(initialUp)
       controlsRef.current?.target.copy(initialTarget)
       controlsRef.current?.update()
+      useModelStore.getState().setCurrentView('iso')
     })
   }, [object, camera, setResetView])
 
@@ -765,15 +770,20 @@ function Scene() {
       if (!controls) return
 
       const perspectiveCamera = camera as THREE.PerspectiveCamera
-      const target = controls.target.clone()
+      // A standard view re-frames the whole part (as in SOLIDWORKS): aimed at
+      // its centre, even after a pan, at the distance that fits it.
+      const box = object ? new THREE.Box3().setFromObject(object) : null
+      const target = box && !box.isEmpty() ? box.getCenter(new THREE.Vector3()) : controls.target.clone()
       const { direction, up } = VIEW_DEFINITIONS[preset]
       const distance = object
         ? getViewDistance(perspectiveCamera, object)
         : camera.position.distanceTo(target) || 5
 
       const newPosition = target.clone().add(direction.clone().multiplyScalar(distance))
-      perspectiveCamera.up.copy(up)
-      animateCameraTo(perspectiveCamera, controls, newPosition, target, 300)
+      // Duration and the change of "up" are handled by the orbiting move
+      // (see animateCamera.ts); the button lights up right away.
+      useModelStore.getState().setCurrentView(preset)
+      animateCameraTo(perspectiveCamera, controls, newPosition, target, undefined, up)
     }
     setGoToView(goToView)
   }, [object, camera, setGoToView])
@@ -786,7 +796,7 @@ function Scene() {
       const controls = controlsRef.current
       if (!controls || !object) return
       const goal = zoomToFitGoal(camera as THREE.PerspectiveCamera, controls.target, object)
-      if (goal) animateCameraTo(camera as THREE.PerspectiveCamera, controls, goal.position, goal.target, 300)
+      if (goal) animateCameraTo(camera as THREE.PerspectiveCamera, controls, goal.position, goal.target, 450)
     }
     setZoomToFit(zoomToFit)
   }, [object, camera, setZoomToFit])
@@ -796,7 +806,7 @@ function Scene() {
       const controls = controlsRef.current
       if (!controls) return
       const goal = zoomToRectGoal(camera as THREE.PerspectiveCamera, controls.target, rect, size.width, size.height)
-      if (goal) animateCameraTo(camera as THREE.PerspectiveCamera, controls, goal.position, goal.target, 300)
+      if (goal) animateCameraTo(camera as THREE.PerspectiveCamera, controls, goal.position, goal.target, 450)
     }
     setZoomToRect(zoomToRect)
   }, [camera, size, setZoomToRect])
@@ -1416,6 +1426,19 @@ function Scene() {
                   : THREE.MOUSE.ROTATE,
           MIDDLE: THREE.MOUSE.DOLLY,
           RIGHT: THREE.MOUSE.PAN,
+        }}
+        // Which VUES button to light: the standard view the camera is looking
+        // along, whatever brought it there (button, load, reset, saved view);
+        // none once the user orbits away. Zoom and pan keep it lit.
+        onChange={() => {
+          const controls = controlsRef.current
+          if (!controls || isCameraAnimating()) return
+          const dir = camera.position.clone().sub(controls.target).normalize()
+          let match: ViewPreset | null = null
+          for (const [preset, def] of Object.entries(VIEW_DEFINITIONS) as [ViewPreset, { direction: THREE.Vector3 }][]) {
+            if (dir.dot(def.direction) > 0.9995) match = preset
+          }
+          useModelStore.getState().setCurrentView(match)
         }}
       />
       <GizmoHelper alignment="bottom-left" margin={[72, 72]}>

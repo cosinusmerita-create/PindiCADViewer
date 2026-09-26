@@ -115,6 +115,10 @@ interface ModelState {
   error: string | null
   resetView: (() => void) | null
   goToView: ((preset: ViewPreset) => void) | null
+  // Standard view the camera is currently in (lit VUES button), null once
+  // the user orbits away - kept up to date by Viewer3D's OrbitControls.
+  currentView: ViewPreset | null
+  setCurrentView: (view: ViewPreset | null) => void
   // SOLIDWORKS/eDrawings-style navigation tools (Toolbar, after VUES): what a
   // left-drag does in the viewport. 'select' keeps the historical behaviour
   // (click selects, drag orbits); in the other modes a click never selects.
@@ -453,6 +457,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
   error: null,
   resetView: null,
   goToView: null,
+  currentView: null,
   navMode: 'select',
   zoomWindowMode: false,
   zoomToFit: null,
@@ -1519,6 +1524,9 @@ export const useModelStore = create<ModelState>((set, get) => ({
   setCaptureFourViews: (captureFourViews) => set({ captureFourViews }),
   setGetCameraState: (getCameraState) => set({ getCameraState }),
   setApplyCameraState: (applyCameraState) => set({ applyCameraState }),
+  setCurrentView: (currentView) => {
+    if (get().currentView !== currentView) set({ currentView })
+  },
   setLightCameraOpen: (lightCameraOpen) => set({ lightCameraOpen }),
   setLighting: (patch) => {
     const { lighting, theme, displayMode } = get()

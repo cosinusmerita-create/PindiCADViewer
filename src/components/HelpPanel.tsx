@@ -361,6 +361,14 @@ export function HelpPanel() {
               />
               <SubTitle>Vues prédéfinies (7 boutons)</SubTitle>
               <Body>FA (Face), AR (Arrière), GA (Gauche), DR (Droite), DE (Dessus), SO (Dessous), ISO (Isométrique)</Body>
+              <List
+                items={[
+                  'L’icône de cube montre la face regardée (arêtes cachées en pointillés pour Arrière, Gauche et Dessous)',
+                  'La caméra tourne autour de la pièce jusqu’à la vue choisie (plus de traversée de la pièce) ; le mouvement est plus long pour un demi-tour que pour un petit ajustement',
+                  'Chaque vue recadre toute la pièce, centrée ; la vue active reste allumée en bleu et s’éteint dès que vous tournez à la souris (le zoom et le déplacement la gardent)',
+                  'Raccourcis : F = Face, T = Dessus, I = Isométrique',
+                ]}
+              />
               <SubTitle>Outils de navigation (après VUES, comme dans SOLIDWORKS / eDrawings)</SubTitle>
               <List
                 items={[
