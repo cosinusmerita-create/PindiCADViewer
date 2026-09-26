@@ -144,6 +144,11 @@ interface ModelState {
   // Colour the Pipette tool paints with: chosen from the colour picker or
   // the quick palette (Toolbar), kept between uses of the tool.
   paintColor: string
+  // Pipette: next click on a part COPIES its colour instead of painting
+  // (the "Prélever" button; Alt+click does it without the button).
+  pipettePicking: boolean
+  // Parts painted by the last pipette click: "Adoucir" re-tints them live.
+  lastPaintedIds: string[]
   measureMode: boolean
   // What a click does while measureMode is on: 'points' = the Mesure tool
   // (two clicks, point to point); 'edge' = the Cotes manuelles tool (one
@@ -304,6 +309,11 @@ interface ModelState {
   togglePipetteMode: () => void
   exitPipetteMode: () => void
   setPaintColor: (color: string) => void
+  setPipettePicking: (picking: boolean) => void
+  // Paints parts with the pipette and remembers them as the last painted.
+  paintParts: (ids: string[], color: string) => void
+  // Re-tints the last painted parts (live "Adoucir"), without new history.
+  retintLastPainted: (color: string) => void
   toggleMeasureMode: () => void
   toggleManualDimMode: () => void
   setManualDimKind: (kind: 'length' | 'gap') => void
@@ -474,6 +484,8 @@ export const useModelStore = create<ModelState>((set, get) => ({
   showGroupNamePrompt: false,
   pipetteMode: false,
   paintColor: PAINT_COLORS[1].value,
+  pipettePicking: false,
+  lastPaintedIds: [],
   measureMode: false,
   measureVariant: 'points',
   manualDimKind: 'length',
@@ -573,6 +585,8 @@ export const useModelStore = create<ModelState>((set, get) => ({
       // Views remembered on another model mean nothing here; lighting and
       // angle of view are the user's taste and carry over.
       savedViews: [],
+      lastPaintedIds: [],
+      pipettePicking: false,
       customColors: {},
       customNames: {},
       paletteOverride: null,
@@ -1131,14 +1145,28 @@ export const useModelStore = create<ModelState>((set, get) => ({
   togglePipetteMode: () =>
     set((state) => ({
       pipetteMode: !state.pipetteMode,
+      pipettePicking: false,
       measureMode: false,
       measurePendingPoint: null,
       measurePendingSnap: null,
       boxSelectMode: false,
       flowPickMode: false,
     })),
-  exitPipetteMode: () => set({ pipetteMode: false }),
+  exitPipetteMode: () => set({ pipetteMode: false, pipettePicking: false }),
   setPaintColor: (paintColor) => set({ paintColor }),
+  setPipettePicking: (pipettePicking) => set({ pipettePicking }),
+  paintParts: (ids, color) => {
+    if (ids.length === 0) return
+    get().setColorForSelection(color, ids)
+    set({ lastPaintedIds: ids })
+  },
+  retintLastPainted: (color) => {
+    const { lastPaintedIds, tree } = get()
+    if (!tree || lastPaintedIds.length === 0) return
+    // Parts removed since (another file, ungroup) are simply skipped.
+    const ids = lastPaintedIds.filter((id) => findNodeById(tree, id))
+    if (ids.length > 0) get().setColorForSelection(color, ids)
+  },
 
   // From Cotes manuelles, Mesure switches tools instead of turning off.
   toggleMeasureMode: () =>

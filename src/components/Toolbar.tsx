@@ -8,6 +8,7 @@ import {
   Crosshair,
   Droplet,
   Droplets,
+  Eraser,
   Expand,
   FolderOpen,
   Gem,
@@ -156,6 +157,8 @@ export function Toolbar() {
   const colorMode = useModelStore((s) => s.colorMode)
   const setColorMode = useModelStore((s) => s.setColorMode)
   const randomizePaletteColors = useModelStore((s) => s.randomizePaletteColors)
+  const customColors = useModelStore((s) => s.customColors)
+  const resetAllColors = useModelStore((s) => s.resetAllColors)
   const showGrid = useModelStore((s) => s.showGrid)
   const setShowGrid = useModelStore((s) => s.setShowGrid)
   const explodeFactor = useModelStore((s) => s.explodeFactor)
@@ -326,7 +329,36 @@ export function Toolbar() {
             wheel zoom always work); Zoom fenêtre is one-shot; Zoom ajusté is
             an immediate action keeping the current orientation. */}
         <div title="Navigation" className="flex shrink-0 items-center rounded-lg bg-[var(--bg-hover)] p-0.5">
-          {NAV_TOOLS.map(({ id, label, icon: Icon }) => (
+          {NAV_TOOLS.slice(0, 1).map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              title={label}
+              onClick={() => setNavMode(id)}
+              disabled={!object}
+              className={`flex items-center justify-center rounded-md p-1.5 transition-colors disabled:pointer-events-none disabled:opacity-30 ${
+                navMode === id && !zoomWindowMode
+                  ? 'bg-[var(--bg-active)] text-white'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              <Icon size={15} />
+            </button>
+          ))}
+          {/* Sélection rectangle, next to Sélectionner: both select parts. */}
+          <button
+            title="Sélection rectangle : glissez pour sélectionner les pièces dans le rectangle"
+            onClick={() => {
+              if (isMobile && !boxSelectMode) pushToast('Glissez pour sélectionner les pièces dans le rectangle')
+              toggleBoxSelectMode()
+            }}
+            disabled={!object}
+            className={`flex items-center justify-center rounded-md p-1.5 transition-colors disabled:pointer-events-none disabled:opacity-30 ${
+              boxSelectMode ? 'bg-[var(--bg-active)] text-white' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+            }`}
+          >
+            <BoxSelect size={15} />
+          </button>
+          {NAV_TOOLS.slice(1).map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               title={label}
@@ -425,18 +457,6 @@ export function Toolbar() {
       <div className="flex flex-wrap items-end gap-x-4 gap-y-2 border-t border-[var(--border-light)] px-4 py-2">
         <ToolGroup title="Outils">
           <ToolButton
-            icon={Pipette}
-            label="Pipette"
-            title="Pipette : choisir une couleur et peindre les pièces"
-            active={pipetteMode}
-            mode
-            disabled={!object}
-            onClick={() => {
-              if (isMobile && !pipetteMode) pushToast('Choisissez une couleur puis touchez les pièces à peindre')
-              togglePipetteMode()
-            }}
-          />
-          <ToolButton
             icon={Ruler}
             label="Mesure"
             active={measureMode && !manualDimMode}
@@ -448,25 +468,15 @@ export function Toolbar() {
             }}
           />
           <ToolButton
-            icon={MessageSquare}
-            label="Annoter"
-            active={annotationMode}
+            icon={PencilRuler}
+            label="Cotes manuelles"
+            title="Cliquez sur une arête pour afficher sa cote (vue lignes cachées supprimées)"
+            active={manualDimMode}
             mode
             disabled={!object}
             onClick={() => {
-              if (isMobile && !annotationMode) pushToast('Touchez une pièce pour placer une annotation')
-              toggleAnnotationMode()
-            }}
-          />
-          <ToolButton
-            icon={BoxSelect}
-            label="Sélection rectangle"
-            active={boxSelectMode}
-            mode
-            disabled={!object}
-            onClick={() => {
-              if (isMobile && !boxSelectMode) pushToast('Glissez pour sélectionner les pièces dans le rectangle')
-              toggleBoxSelectMode()
+              if (isMobile && !manualDimMode) pushToast('Touchez une arête pour afficher sa cote')
+              toggleManualDimMode()
             }}
           />
           <ToolButton
@@ -479,15 +489,14 @@ export function Toolbar() {
             onClick={() => toggleAutoDimensions()}
           />
           <ToolButton
-            icon={PencilRuler}
-            label="Cotes manuelles"
-            title="Cliquez sur une arête pour afficher sa cote (vue lignes cachées supprimées)"
-            active={manualDimMode}
+            icon={MessageSquare}
+            label="Annoter"
+            active={annotationMode}
             mode
             disabled={!object}
             onClick={() => {
-              if (isMobile && !manualDimMode) pushToast('Touchez une arête pour afficher sa cote')
-              toggleManualDimMode()
+              if (isMobile && !annotationMode) pushToast('Touchez une pièce pour placer une annotation')
+              toggleAnnotationMode()
             }}
           />
         </ToolGroup>
@@ -511,6 +520,18 @@ export function Toolbar() {
             onClick={() => setAllOpacity(isAllTransparent ? 1 : 0.3)}
           />
           <ToolButton
+            icon={Pipette}
+            label="Pipette"
+            title="Pipette : choisir une couleur et peindre les pièces"
+            active={pipetteMode}
+            mode
+            disabled={!object}
+            onClick={() => {
+              if (isMobile && !pipetteMode) pushToast('Choisissez une couleur puis touchez les pièces à peindre')
+              togglePipetteMode()
+            }}
+          />
+          <ToolButton
             icon={Palette}
             label={byFace ? 'Couleurs par face' : 'Couleurs par pièce'}
             title={
@@ -523,6 +544,13 @@ export function Toolbar() {
             active={colorMode === 'palette'}
             disabled={!object}
             onClick={() => setColorMode(colorMode === 'palette' ? 'standard' : 'palette')}
+          />
+          <ToolButton
+            icon={Eraser}
+            label="Réinitialiser les couleurs"
+            title="Retirer les couleurs choisies à la main (pipette, pastille)"
+            disabled={Object.keys(customColors).length === 0}
+            onClick={() => resetAllColors()}
           />
           <ToolButton
             icon={Dices}

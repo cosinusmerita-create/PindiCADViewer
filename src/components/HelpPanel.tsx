@@ -289,10 +289,18 @@ export function HelpPanel() {
                   </>,
                   <>
                     <strong className="text-[var(--text-primary)]">Barre d'outils, sur 3 lignes</strong> — Ligne 1 :
-                    Ouvrir, modes d'affichage, vues FA à ISO, puis Réinitialiser la vue, État d'origine, Plan de
-                    coupe, Réinitialiser les couleurs et Plein écran. Ligne 2 : tous les outils, rangés par groupe (Outils,
-                    Affichage, Assemblage, Simulation). Ligne 3 : les options de l'outil actif, visible seulement quand un
-                    outil est en cours
+                    Ouvrir, modes d'affichage, vues FA à ISO, navigation (Sélectionner, Sélection rectangle, Translater,
+                    Rotation, Zoom, Zoom fenêtre, Zoom ajusté), puis Plan de coupe, Réinitialiser la vue, État d'origine et
+                    Plein écran. Ligne 2 : les outils par groupe — Outils (Mesure, Cotes manuelles, Cotes auto, Annoter),
+                    Affichage (Grille, Tout transparent, Pipette, Couleurs par pièce, Réinitialiser les couleurs, Couleur
+                    aléatoire, Lumières et caméra), Assemblage, Simulation, Impression. Ligne 3 : les options de l'outil
+                    actif, visible seulement quand un outil est en cours
+                  </>,
+                  <>
+                    <strong className="text-[var(--text-primary)]">Outils → Options (Ctrl+,)</strong> — Réglages de
+                    l'application, mémorisés sur l'ordinateur. « À l'ouverture d'un fichier » : afficher la grille, couleurs
+                    par pièce pour les assemblages, mode d'affichage, vue de départ (aussi utilisée par « Réinitialiser la
+                    vue »), et un bouton pour rétablir les réglages par défaut
                   </>,
                   <>
                     <strong className="text-[var(--text-primary)]">Réglages du plan de coupe</strong> — Ils s'affichent sous
@@ -488,17 +496,18 @@ export function HelpPanel() {
                     <strong className="text-[var(--text-primary)]">Bouton ↺</strong> — Remet la couleur auto
                   </>,
                   <>
-                    <strong className="text-[var(--text-primary)]">Réinitialiser les couleurs</strong> — Bouton de la toolbar (ligne 1)
+                    <strong className="text-[var(--text-primary)]">Réinitialiser les couleurs</strong> — Bouton du groupe Affichage (ligne 2), devant « Couleur aléatoire »
                   </>,
                 ]}
               />
               <SubTitle>Outil Pipette</SubTitle>
               <List
                 items={[
-                  'Activez Pipette dans la toolbar : une barre de couleurs apparaît sous les outils',
-                  'Choisissez la couleur : une pastille de la palette rapide, le « Nuancier » (tableau de toutes les teintes, du plus clair au plus foncé, plus les gris), ou le grand carré pour une couleur libre',
-                  '« Adoucir » (0 à 100 %) rend la couleur moins vive et plus claire en gardant sa teinte ; le carré montre la couleur réellement peinte, et les pastilles comme le nuancier s’affichent déjà adoucis',
+                  'Activez Pipette (groupe Affichage) : une barre de couleurs apparaît sous les outils',
+                  'Copier la couleur d’une pièce : « Prélever » puis clic sur la pièce (ou directement Alt+clic sur la pièce) ; sur une pièce colorée par face, c’est la couleur de la face cliquée. L’outil repasse ensuite en peinture',
+                  'Ou choisissez la couleur : une pastille de la palette rapide, le « Nuancier » (tableau de toutes les teintes, du plus clair au plus foncé, plus les gris), ou le grand carré pour une couleur libre',
                   'Cliquez sur les pièces à peindre (fonctionne aussi avec une seule pièce) ; clic sur une pièce sélectionnée = toute la sélection',
+                  '« Adoucir » (0 à 100 %) rend la couleur moins vive et plus claire en gardant sa teinte, EN DIRECT sur la dernière pièce peinte (ou la dernière sélection peinte) ; choisir ou prélever une nouvelle couleur la libère. Le carré montre la couleur réellement peinte',
                   'La couleur choisie est gardée pour la prochaine utilisation',
                   'Escape ou clic droit = quitter le mode',
                 ]}

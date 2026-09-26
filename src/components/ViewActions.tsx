@@ -1,17 +1,16 @@
 import { useEffect, useState } from 'react'
-import { Eraser, Maximize, Minimize, RotateCcw, Scissors, Undo2 } from 'lucide-react'
+import { Maximize, Minimize, RotateCcw, Scissors, Undo2 } from 'lucide-react'
 import { useModelStore } from '../hooks/useModelState'
 import { useToastStore } from '../hooks/useToastStore'
 import { ToolButton } from './ToolButton'
 import { toggleViewerFullscreen } from '../utils/fullscreen'
 
-// View/color reset and fullscreen - used to sit in the bottom status bar,
-// now grouped with the other toolbar actions (see Toolbar.tsx).
+// Section plane, view reset, back to the opening state and fullscreen - used
+// to sit in the bottom status bar, now grouped with the other toolbar actions
+// (see Toolbar.tsx). "Réinitialiser les couleurs" moved to the Affichage group.
 export function ViewActions() {
   const object = useModelStore((s) => s.object)
   const resetView = useModelStore((s) => s.resetView)
-  const customColors = useModelStore((s) => s.customColors)
-  const resetAllColors = useModelStore((s) => s.resetAllColors)
   const clippingPanelOpen = useModelStore((s) => s.clippingPanelOpen)
   const toggleClipping = useModelStore((s) => s.toggleClipping)
   const clippingEnabled = useModelStore((s) => s.clippingEnabled)
@@ -40,14 +39,6 @@ export function ViewActions() {
 
   return (
     <>
-      <ToolButton icon={RotateCcw} label="Réinitialiser la vue" disabled={!object} onClick={() => resetView?.()} />
-      <ToolButton
-        icon={Undo2}
-        label="État d'origine"
-        title="Annuler toutes les modifications et remettre le modèle comme à l'ouverture"
-        disabled={!object}
-        onClick={handleRestoreOriginal}
-      />
       <ToolButton
         icon={Scissors}
         label="Plan de coupe"
@@ -56,11 +47,13 @@ export function ViewActions() {
         disabled={!object}
         onClick={toggleClipping}
       />
+      <ToolButton icon={RotateCcw} label="Réinitialiser la vue" disabled={!object} onClick={() => resetView?.()} />
       <ToolButton
-        icon={Eraser}
-        label="Réinitialiser les couleurs"
-        disabled={Object.keys(customColors).length === 0}
-        onClick={() => resetAllColors()}
+        icon={Undo2}
+        label="État d'origine"
+        title="Annuler toutes les modifications et remettre le modèle comme à l'ouverture"
+        disabled={!object}
+        onClick={handleRestoreOriginal}
       />
       <ToolButton
         icon={isFullscreen ? Minimize : Maximize}

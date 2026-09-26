@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronDown, Grid3x3 } from 'lucide-react'
+import { ChevronDown, Grid3x3, Pipette } from 'lucide-react'
 import { useModelStore } from '../hooks/useModelState'
 import { PAINT_COLORS } from '../utils/colorPalette'
 
@@ -77,12 +77,33 @@ export function PipetteColors({ isMobile }: { isMobile: boolean }) {
   const [tableOpen, setTableOpen] = useState(false)
   const popoverRef = useRef<HTMLDivElement>(null)
 
+  const pipettePicking = useModelStore((s) => s.pipettePicking)
+  const setPipettePicking = useModelStore((s) => s.setPipettePicking)
+  const lastPaintedCount = useModelStore((s) => s.lastPaintedIds.length)
+  const retintLastPainted = useModelStore((s) => s.retintLastPainted)
+
+  // A new BASE colour (swatch, table, free picker) starts a new painting: the
+  // last painted parts are let go, so moving "Adoucir" afterwards can't
+  // repaint them with a colour they never had.
   const choose = (color: string, amount = softness) => {
     lastBase = color
     lastSoftness = amount
     setBase(color)
     setSoftness(amount)
     setPaintColor(soften(color, amount))
+    useModelStore.setState({ lastPaintedIds: [] })
+  }
+
+  // "Adoucir" acts at once: the paint colour AND the part(s) painted last
+  // are re-tinted on every move of the slider.
+  const adjustSoftness = (amount: number) => {
+    lastBase = base
+    lastSoftness = amount
+    setBase(base)
+    setSoftness(amount)
+    const color = soften(base, amount)
+    setPaintColor(color)
+    retintLastPainted(color)
   }
 
   // Outside click / Escape closes the table (the Escape that leaves the
@@ -176,15 +197,35 @@ export function PipetteColors({ isMobile }: { isMobile: boolean }) {
         )}
       </div>
 
-      <label className="flex items-center gap-2 text-[var(--text-secondary)]" title="Rend la couleur plus douce (moins vive, plus claire)">
+      <button
+        type="button"
+        onClick={() => setPipettePicking(!pipettePicking)}
+        aria-pressed={pipettePicking}
+        title="Prélever la couleur d'une pièce (ou Alt+clic sur la pièce), puis cliquer sur une autre pièce pour la lui donner"
+        className={`flex items-center gap-1 rounded-md px-2 py-1 font-medium transition-colors ${
+          pipettePicking ? 'bg-[var(--bg-active)] text-white' : 'bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+        }`}
+      >
+        <Pipette size={13} />
+        Prélever
+      </button>
+
+      <label
+        className="flex items-center gap-2 text-[var(--text-secondary)]"
+        title={
+          lastPaintedCount > 0
+            ? 'Rend la couleur plus douce, en direct sur la dernière pièce peinte'
+            : 'Rend la couleur plus douce (moins vive, plus claire)'
+        }
+      >
         Adoucir
         <input
           type="range"
           min={0}
           max={100}
-          step={5}
+          step={1}
           value={softness}
-          onChange={(e) => choose(base, Number(e.target.value))}
+          onChange={(e) => adjustSoftness(Number(e.target.value))}
           aria-label="Adoucir la couleur"
           className="h-1.5 w-24 accent-[var(--bg-active)]"
         />
@@ -192,9 +233,15 @@ export function PipetteColors({ isMobile }: { isMobile: boolean }) {
       </label>
 
       <span>
-        {isMobile
-          ? 'Choisissez la couleur puis touchez les pièces à peindre'
-          : 'Choisissez la couleur puis cliquez sur les pièces à peindre (clic sur une pièce sélectionnée = toute la sélection)'}
+        {pipettePicking
+          ? isMobile
+            ? 'Touchez la pièce dont vous voulez la couleur'
+            : 'Cliquez sur la pièce dont vous voulez copier la couleur'
+          : lastPaintedCount > 0
+            ? `« Adoucir » agit en direct sur ${lastPaintedCount > 1 ? `les ${lastPaintedCount} dernières pièces peintes` : 'la dernière pièce peinte'}`
+            : isMobile
+              ? 'Choisissez la couleur puis touchez les pièces à peindre'
+              : 'Choisissez ou prélevez (Alt+clic) une couleur, puis cliquez sur les pièces à peindre'}
       </span>
     </span>
   )

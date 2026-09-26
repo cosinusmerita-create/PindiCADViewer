@@ -546,6 +546,21 @@ function AnimationController() {
 // Canvas' <Suspense>), and offline - the desktop app's normal case - the mode
 // simply failed. three's RoomEnvironment is a small procedural studio
 // generated on the GPU in a few milliseconds: no network, same look anywhere.
+// Colour under the pipette's "Prélever" click, as #rrggbb: the part's own
+// colour, or - on a part coloured per face (vertex colours, see
+// faceColors.ts) - the colour of the face that was hit. Vertex colours are
+// stored in the linear working space; THREE.Color converts back to sRGB hex.
+function colorAtHit(hit: THREE.Intersection): string | null {
+  const mesh = hit.object as THREE.Mesh
+  const material = getPrimaryMaterial(mesh)
+  const colors = mesh.geometry.getAttribute('color') as THREE.BufferAttribute | undefined
+  if (material.vertexColors && colors && hit.face) {
+    const i = hit.face.a
+    return `#${new THREE.Color(colors.getX(i), colors.getY(i), colors.getZ(i)).getHexString()}`
+  }
+  return `#${material.color.getHexString()}`
+}
+
 function RealisticEnvironment() {
   const gl = useThree((state) => state.gl)
   const scene = useThree((state) => state.scene)
@@ -596,8 +611,6 @@ function Scene() {
   const pipetteMode = useModelStore((s) => s.pipetteMode)
   const paintColor = useModelStore((s) => s.paintColor)
   const exitPipetteMode = useModelStore((s) => s.exitPipetteMode)
-  const setNodeColor = useModelStore((s) => s.setNodeColor)
-  const setColorForSelection = useModelStore((s) => s.setColorForSelection)
   const measureMode = useModelStore((s) => s.measureMode)
   const measureVariant = useModelStore((s) => s.measureVariant)
   const manualDimKind = useModelStore((s) => s.manualDimKind)
@@ -1077,17 +1090,28 @@ function Scene() {
 
     const nodeId = findVisibleNodeId(e)
 
-    // Pipette = paint tool: the colour is chosen beforehand (colour picker or
-    // quick palette in the toolbar), each click paints. It used to copy the
-    // first clicked part's colour onto the next ones, which did nothing on a
-    // single-part model (a part re-painted with its own colour).
+    // Pipette, two gestures:
+    // - PICK ("Prélever" button, or Alt+click): the clicked part's colour -
+    //   the face's own colour on a part coloured per face - becomes the paint
+    //   colour, then the tool goes back to painting;
+    // - PAINT (plain click): paints the part (or the whole selection when the
+    //   part belongs to it) and remembers it, so "Adoucir" can re-tint it live.
     if (pipetteMode) {
       if (!nodeId) return
-      if (selectedNodeIds.length > 1 && selectedNodeIds.includes(nodeId)) {
-        setColorForSelection(paintColor)
-      } else {
-        setNodeColor(nodeId, paintColor)
+      const store = useModelStore.getState()
+      if (store.pipettePicking || e.nativeEvent.altKey) {
+        const hit = e.intersections.find((i) => i.object.visible && i.object.userData.nodeId === nodeId)
+        const picked = hit ? colorAtHit(hit) : null
+        if (!picked) return
+        store.setPaintColor(picked)
+        store.setPipettePicking(false)
+        // A new colour: "Adoucir" no longer re-tints the previously painted part.
+        useModelStore.setState({ lastPaintedIds: [] })
+        useToastStore.getState().pushToast(`Couleur prélevée ${picked} : cliquez sur une pièce pour la peindre`)
+        return
       }
+      const ids = selectedNodeIds.length > 1 && selectedNodeIds.includes(nodeId) ? selectedNodeIds : [nodeId]
+      store.paintParts(ids, paintColor)
       return
     }
 
