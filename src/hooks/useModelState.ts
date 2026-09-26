@@ -33,9 +33,11 @@ import {
   collectNodeIds,
   collectPartNodeIds,
   findNodeById,
+  markSinglePart,
   removeNodeById,
   renameNodeById,
 } from '../utils/componentTree'
+import { randomizeFaceColors } from '../utils/faceColors'
 import { PAINT_COLORS, getRandomPaletteColors } from '../utils/colorPalette'
 import { buildDimensionReport } from '../utils/dimensioning'
 import { clearCollisionHighlight } from '../utils/collisionFeedback'
@@ -529,6 +531,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
 
     // Newly loaded parts start out gray (see the loaders); bring them in
     // line with whichever color mode the viewer is currently set to.
+    markSinglePart(tree)
     applyColorModeToTree(tree, get().colorMode, {}, get().theme)
 
     set({
@@ -775,6 +778,19 @@ export const useModelStore = create<ModelState>((set, get) => ({
     const { tree, colorMode, customColors, theme } = get()
     if (!tree || colorMode !== 'palette') return
     const meshes = collectMeshes(tree)
+    // A part open on its own is colored per CAD face (see faceColors.ts): the
+    // new series goes to its faces. Saved as "face:<n>" keys beside the
+    // per-part series format.
+    const faceSeries = meshes.length === 1 ? randomizeFaceColors(meshes[0]) : null
+    if (faceSeries) {
+      applyColorModeToTree(tree, colorMode, customColors, theme)
+      set((state) => ({
+        paletteVersion: state.paletteVersion + 1,
+        paletteOverride: Object.fromEntries(faceSeries.map((color, i) => [`face:${i}`, color])),
+        hasUnsavedChanges: true,
+      }))
+      return
+    }
     const groupIds = Array.from(
       new Set(meshes.map((m) => m.userData.shapeGroup).filter((g): g is number => typeof g === 'number')),
     )
@@ -1537,7 +1553,12 @@ export const useModelStore = create<ModelState>((set, get) => ({
     // meshes), then switch the mode, which repaints everything that doesn't
     // carry a hand-picked color.
     if (project.paletteColors) {
-      for (const mesh of collectMeshes(workingTree)) {
+      const savedFaces = Object.keys(project.paletteColors).filter((key) => key.startsWith('face:'))
+      const workingMeshes = collectMeshes(workingTree)
+      if (savedFaces.length > 0 && workingMeshes.length === 1) {
+        workingMeshes[0].userData.faceColors = savedFaces.map((_, i) => project.paletteColors![`face:${i}`])
+      }
+      for (const mesh of workingMeshes) {
         const group = mesh.userData.shapeGroup
         const color = typeof group === 'number' ? project.paletteColors[String(group)] : undefined
         if (color !== undefined) mesh.userData.paletteColor = color

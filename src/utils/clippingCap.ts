@@ -74,7 +74,11 @@ export function updateAllSectionCaps(object: THREE.Object3D, plane: THREE.Plane)
     cap.visible = true
 
     const capMaterial = cap.material as THREE.MeshStandardMaterial
-    capMaterial.color.copy(getPrimaryMaterial(mesh).color).multiplyScalar(CAP_DARKEN_FACTOR)
+    const primary = getPrimaryMaterial(mesh)
+    // Per-face colors leave the material itself white: a white cap would read
+    // as a hole, so the section of a face-colored part is a neutral gray.
+    if (primary.vertexColors) capMaterial.color.set(0x8a8a8a)
+    else capMaterial.color.copy(primary.color).multiplyScalar(CAP_DARKEN_FACTOR)
   }
 }
 

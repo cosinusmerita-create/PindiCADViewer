@@ -453,7 +453,9 @@ export function HelpPanel() {
                   'Pièce unique → Gris métallique (#b0b0b0)',
                   'Assemblage → Palette automatique de couleurs distinctes',
                   'Toggle "Couleurs par pièce" dans la toolbar : les pièces de même forme et de mêmes dimensions (4 vis identiques, 3 pales identiques...) reçoivent la MÊME couleur, quelle que soit leur position ou leur orientation',
-                  'Bouton "Couleur aléatoire" (à droite de "Couleurs par pièce", actif seulement quand celui-ci l’est) : chaque clic tire une nouvelle série de couleurs au hasard - les pièces identiques gardent la même couleur, et les couleurs choisies à la main ne changent pas. Cliquez jusqu’à trouver la série qui vous plaît : elle reste affichée (elle n’est pas enregistrée dans le fichier .pindi)',
+                  'Bouton "Couleur aléatoire" (à droite de "Couleurs par pièce", actif seulement quand celui-ci l’est) : chaque clic tire une nouvelle série de couleurs au hasard - les pièces identiques gardent la même couleur, et les couleurs choisies à la main ne changent pas. Cliquez jusqu’à trouver la série qui vous plaît : elle est enregistrée dans le fichier .pindi',
+                  "Pièce seule (STEP, IGES, BREP) : le bouton devient \"Couleurs par face\" - chaque face de la pièce reçoit sa couleur (un perçage compte pour une seule face), pour mieux lire sa forme ; \"Couleur aléatoire\" tire alors de nouvelles couleurs de faces. Une couleur choisie à la main (pipette, pastille) recouvre toute la pièce ; le bouton ↺ remet les couleurs de faces",
+                  'Pièce seule sans faces CAO (STL, OBJ) : "Couleurs par pièce" lui donne une couleur, et "Couleur aléatoire" en tire une autre à chaque clic',
                 ]}
               />
               <SubTitle>Couleur personnalisée</SubTitle>

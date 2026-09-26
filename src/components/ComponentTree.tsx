@@ -10,6 +10,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react'
+import { swatchBackground } from '../utils/faceColors'
 import { useModelStore } from '../hooks/useModelState'
 import { useDevice } from '../hooks/useDevice'
 import { collectNodeIds, getPrimaryMaterial } from '../utils/componentTree'
@@ -214,7 +215,7 @@ function TreeRow({ node, depth }: TreeRowProps) {
                 colorInputRef.current?.click()
               }}
               className="h-2.5 w-2.5 shrink-0 rounded-full border border-black/30"
-              style={{ backgroundColor: `#${material.color.getHexString()}`, opacity }}
+              style={{ background: swatchBackground(material), opacity }}
             />
           </>
         )}

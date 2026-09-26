@@ -348,6 +348,34 @@ function mergeCoincidentCylinderRegions(regions: number[][], faces: FaceInfo[]):
   return candidates.map((c) => c.region)
 }
 
+function computeFaceInfos(index: THREE.BufferAttribute, position: THREE.BufferAttribute): FaceInfo[] {
+  const triangleCount = index.count / 3
+  const faces: FaceInfo[] = new Array(triangleCount)
+  const a = new THREE.Vector3()
+  const b = new THREE.Vector3()
+  const c = new THREE.Vector3()
+  for (let t = 0; t < triangleCount; t++) {
+    a.fromBufferAttribute(position, index.getX(t * 3))
+    b.fromBufferAttribute(position, index.getX(t * 3 + 1))
+    c.fromBufferAttribute(position, index.getX(t * 3 + 2))
+    const normal = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a)).normalize()
+    faces[t] = { normal, centroid: a.clone().add(b).add(c).divideScalar(3) }
+  }
+  return faces
+}
+
+// The part's CAD faces as triangle lists, for "Couleurs par face": one entry
+// per B-Rep face, with the two half-cylinders of a bore/shaft merged back into
+// one (see mergeCoincidentCylinderRegions) so a hole reads as one color.
+// null for meshes that never were a B-Rep (STL, OBJ...).
+export function brepFaceRegions(mesh: THREE.Mesh): number[][] | null {
+  const brepFaces = mesh.userData.brepFaces as { first: number; last: number }[] | undefined
+  const position = mesh.geometry.attributes.position as THREE.BufferAttribute | undefined
+  const index = mesh.geometry.getIndex()
+  if (!brepFaces || brepFaces.length === 0 || !position || !index) return null
+  return mergeCoincidentCylinderRegions(regionsFromBrepFaces(brepFaces), computeFaceInfos(index, position))
+}
+
 export function analyzeSurfacePatches(mesh: THREE.Mesh): PatchData {
   const geometry = mesh.geometry
   const position = geometry.attributes.position

@@ -208,6 +208,10 @@ export function applyDisplayMode(mesh: THREE.Mesh, mode: DisplayMode, theme: The
     case 'realistic': {
       const physical = getOrCreatePhysicalMaterial(mesh)
       physical.color.copy(primary.color)
+      if (physical.vertexColors !== primary.vertexColors) {
+        physical.vertexColors = primary.vertexColors
+        physical.needsUpdate = true
+      }
       physical.opacity = primary.opacity
       physical.transparent = primary.transparent
       physical.depthWrite = primary.depthWrite

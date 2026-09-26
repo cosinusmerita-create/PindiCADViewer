@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { ColorMode, ComponentNode, Theme, GroupRecord } from '../types/model'
-import { standardColorFor } from './colorPalette'
+import { getPaletteColor, standardColorFor } from './colorPalette'
+import { applyFaceColors } from './faceColors'
 import { analyzeMeshEdges, type MeshEdgeData } from './edgeAnalysis'
 
 export function collectNodeIds(node: ComponentNode, ids: string[] = []): string[] {
@@ -152,6 +153,10 @@ function syncPhysicalMirror(mesh: THREE.Mesh, primary: THREE.MeshStandardMateria
   const active = mesh.material
   if (!(active instanceof THREE.MeshPhysicalMaterial)) return
   active.color.copy(primary.color)
+  if (active.vertexColors !== primary.vertexColors) {
+    active.vertexColors = primary.vertexColors
+    active.needsUpdate = true
+  }
   active.opacity = primary.opacity
   active.transparent = primary.transparent
   active.depthWrite = primary.depthWrite
@@ -176,12 +181,33 @@ export function applyOpacity(node: ComponentNode, opacity: number, affected: str
 }
 
 // A mesh's "auto" color depends on the active color mode: uniform gray in
-// standard mode, or its stashed palette hue in palette mode (parts from a
-// single-part file never get a palette hue, so they stay gray either way).
-// The gray itself is theme-dependent (see colorPalette.ts).
+// standard mode, or its stashed palette hue in palette mode. The gray itself
+// is theme-dependent (see colorPalette.ts).
 function resolveAutoColor(mesh: THREE.Mesh, colorMode: ColorMode, theme: Theme): number {
   const paletteColor = mesh.userData.paletteColor as number | undefined
   return colorMode === 'palette' && paletteColor !== undefined ? paletteColor : standardColorFor(theme)
+}
+
+// Puts a part without a hand-picked color back on its automatic look. A part
+// open on its own gets one color per CAD face in palette mode ("Couleurs par
+// pièce" then reads "par face", see faceColors.ts); anything else - an
+// assembly part, or a lone STL/OBJ with no CAD faces - gets one color.
+function applyAutoColor(mesh: THREE.Mesh, material: THREE.MeshStandardMaterial, colorMode: ColorMode, theme: Theme) {
+  const byFace = colorMode === 'palette' && mesh.userData.singlePart === true
+  if (!applyFaceColors(mesh, material, byFace)) material.color.set(resolveAutoColor(mesh, colorMode, theme))
+}
+
+// Marks the part of a single-part file (userData.singlePart) and gives it the
+// palette's first color, which the loaders only hand out to assembly parts:
+// "Couleurs par pièce" and "Couleur aléatoire" then act on it too (per face
+// when it has CAD faces, as a whole otherwise).
+export function markSinglePart(tree: ComponentNode) {
+  const meshes = collectMeshes(tree)
+  for (const mesh of meshes) mesh.userData.singlePart = meshes.length === 1
+  if (meshes.length !== 1) return
+  const mesh = meshes[0]
+  if (mesh.userData.paletteColor === undefined) mesh.userData.paletteColor = getPaletteColor(0).getHex()
+  if (mesh.userData.shapeGroup === undefined) mesh.userData.shapeGroup = 0
 }
 
 // Sets or clears (color === null reverts to the mode-appropriate auto color)
@@ -197,7 +223,12 @@ export function applyColor(
   affected.push(node.id)
   if (node.mesh) {
     const material = getPrimaryMaterial(node.mesh)
-    material.color.set(color ?? resolveAutoColor(node.mesh, colorMode, theme))
+    if (color) {
+      applyFaceColors(node.mesh, material, false)
+      material.color.set(color)
+    } else {
+      applyAutoColor(node.mesh, material, colorMode, theme)
+    }
     syncPhysicalMirror(node.mesh, material)
   }
   for (const child of node.children) applyColor(child, color, colorMode, theme, affected)
@@ -232,9 +263,7 @@ export function applyColorModeToTree(
       material.roughness = 0.6
       material.envMapIntensity = 0.5
     }
-    if (!customColors[node.id]) {
-      material.color.set(resolveAutoColor(node.mesh, colorMode, theme))
-    }
+    if (!customColors[node.id]) applyAutoColor(node.mesh, material, colorMode, theme)
     syncPhysicalMirror(node.mesh, material)
   }
   for (const child of node.children) applyColorModeToTree(child, colorMode, customColors, theme)

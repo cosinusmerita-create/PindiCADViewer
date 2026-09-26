@@ -41,7 +41,8 @@ import { useToastStore } from '../hooks/useToastStore'
 import { usePrintStore } from '../hooks/usePrintStore'
 import { useDevice } from '../hooks/useDevice'
 import { OPEN_FILE_ACCEPT, useFileLoader } from '../hooks/useFileLoader'
-import { collectNodeIds } from '../utils/componentTree'
+import { collectMeshes, collectNodeIds } from '../utils/componentTree'
+import { faceRegionsFor } from '../utils/faceColors'
 import { FLUID_TYPES, type FlowFluidType } from '../utils/fluidTypes'
 import { PAINT_COLORS } from '../utils/colorPalette'
 import { FileMenu } from './FileMenu'
@@ -182,6 +183,15 @@ export function Toolbar() {
   const toggleHelp = useModelStore((s) => s.toggleHelp)
   const printOpen = usePrintStore((s) => s.open)
   const setPrintOpen = usePrintStore((s) => s.setOpen)
+
+  // A part open on its own with CAD faces (STEP, IGES, BREP): "Couleurs par
+  // pièce" colors its faces instead (see faceColors.ts), and says so.
+  const byFace = useMemo(() => {
+    if (!tree) return false
+    const meshes = collectMeshes(tree)
+    return meshes.length === 1 && faceRegionsFor(meshes[0]) !== null
+  }, [tree])
+  const isSinglePart = useMemo(() => !!tree && collectMeshes(tree).length === 1, [tree])
 
   const isAllTransparent = useMemo(() => {
     if (!tree) return false
@@ -482,7 +492,14 @@ export function Toolbar() {
           />
           <ToolButton
             icon={Palette}
-            label="Couleurs par pièce"
+            label={byFace ? 'Couleurs par face' : 'Couleurs par pièce'}
+            title={
+              byFace
+                ? 'Une couleur par face de la pièce, pour mieux lire sa forme (un perçage = une face)'
+                : isSinglePart
+                  ? 'Donne une couleur à la pièce (Couleur aléatoire pour en changer)'
+                  : 'Une couleur par pièce ; les pièces identiques partagent la même couleur'
+            }
             active={colorMode === 'palette'}
             disabled={!object}
             onClick={() => setColorMode(colorMode === 'palette' ? 'standard' : 'palette')}
@@ -492,8 +509,10 @@ export function Toolbar() {
             label="Couleur aléatoire"
             title={
               colorMode === 'palette'
-                ? 'Nouvelle série de couleurs au hasard : clique jusqu’à ce qu’elle te plaise'
-                : 'Active d’abord « Couleurs par pièce »'
+                ? byFace
+                  ? 'Nouvelles couleurs de faces au hasard : clique jusqu’à ce qu’elles te plaisent'
+                  : 'Nouvelle série de couleurs au hasard : clique jusqu’à ce qu’elle te plaise'
+                : `Active d’abord « ${byFace ? 'Couleurs par face' : 'Couleurs par pièce'} »`
             }
             disabled={!object || colorMode !== 'palette'}
             onClick={randomizePaletteColors}
