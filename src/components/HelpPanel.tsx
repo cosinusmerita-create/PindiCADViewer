@@ -662,7 +662,10 @@ export function HelpPanel() {
               <DataTable
                 headers={['Type', 'Effet']}
                 rows={[
-                  ['Radial', 'Chaque pièce s\'éloigne du centre de l\'assemblage, proportionnellement à sa distance (défaut)'],
+                  [
+                    'Radial',
+                    "Chaque pièce s'éloigne du centre de l'assemblage (là où se trouvent la plupart des pièces, par ex. sur l'arbre), proportionnellement à sa distance ; une pièce longue et fine (vis, goupille, axe) sort le long de son propre axe (défaut)",
+                  ],
                   ['Axial X / Y / Z', 'Les pièces ne bougent que le long d\'un axe : idéal pour des pièces empilées, un arbre, un cylindre'],
                   [
                     'Sous-ensembles',
@@ -673,7 +676,8 @@ export function HelpPanel() {
               <List
                 items={[
                   <>
-                    <strong className="text-[var(--text-primary)]">Curseur 0-100 %</strong> — de l'assemblé à l'éclaté
+                    <strong className="text-[var(--text-primary)]">Curseur 0-100 %</strong> — de l'assemblé à l'éclaté ; si les
+                    pièces écartées sortent de l'écran, la vue recule d'elle-même (sans changer d'angle) une fois le mouvement fini
                   </>,
                   <>
                     <strong className="text-[var(--text-primary)]">Pas à pas</strong> — les pièces partent une par une, de

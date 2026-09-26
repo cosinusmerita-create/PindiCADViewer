@@ -43,16 +43,54 @@ export function buildPartGroups(tree: ComponentNode): Map<string, string> {
   return groups
 }
 
+// Explosion centre: the per-axis MEDIAN of the unit centres. The bounding-box
+// centre used before is pulled sideways by whatever sticks out on one side (a
+// plate, a saddle): on a shaft assembly every part sitting on the shaft then
+// drifted off the axis as it moved. The median lands where most parts are -
+// on the shaft - and ignores a few outliers.
+function medianCenter(points: THREE.Vector3[], fallback: THREE.Vector3): THREE.Vector3 {
+  if (points.length === 0) return fallback.clone()
+  const median = (values: number[]) => {
+    const sorted = [...values].sort((a, b) => a - b)
+    const mid = sorted.length >> 1
+    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+  }
+  return new THREE.Vector3(median(points.map((p) => p.x)), median(points.map((p) => p.y)), median(points.map((p) => p.z)))
+}
+
+// A long, thin part (screw, pin, shaft: one dimension LONG_RATIO times the
+// other two) leaves along its own axis, the way it is really pulled out -
+// the centre-to-part direction sent the screws of a flange off diagonally,
+// each one a different way. Kept only when that axis carries a fair share of
+// the move (a screw lying across the explosion keeps the radial direction).
+const LONG_RATIO = 2.5
+const MIN_AXIAL_SHARE = 0.3
+
+function alongOwnAxis(displacement: THREE.Vector3, size: THREE.Vector3 | undefined): THREE.Vector3 {
+  if (!size) return displacement
+  const dims = [size.x, size.y, size.z]
+  const long = dims.indexOf(Math.max(...dims))
+  const others = dims.filter((_, i) => i !== long)
+  if (dims[long] < LONG_RATIO * Math.max(...others)) return displacement
+  const axial = displacement.getComponent(long)
+  if (Math.abs(axial) < MIN_AXIAL_SHARE * displacement.length()) return displacement
+  // Same travel as before, all of it along the part's axis.
+  return new THREE.Vector3().setComponent(long, Math.sign(axial) * displacement.length())
+}
+
 // Pure layout: given each part's assembled center, returns the offset each
 // part must move by at `factor` (0 = assembled, 1 = fully exploded).
 // A "unit" is what moves as one rigid block at the first level: a single part
 // in radial/axial modes, a whole top-level block in sub-assembly mode.
+// `sizes` (assembled bounding-box size per part) lets long parts move along
+// their own axis in radial mode; `assemblyCenter` is only a fallback now.
 export function computeExplodeOffsets(
   centers: Map<string, THREE.Vector3>,
   groups: Map<string, string>,
   assemblyCenter: THREE.Vector3,
   factor: number,
   options: ExplodeOptions,
+  sizes?: Map<string, THREE.Vector3>,
 ): Map<string, THREE.Vector3> {
   const subassembly = options.mode === 'subassembly'
   const unitOf = (partId: string) => (subassembly ? (groups.get(partId) ?? partId) : partId)
@@ -72,15 +110,16 @@ export function computeExplodeOffsets(
   }
 
   const axis = AXIS_INDEX[options.mode]
-  const displacementOf = (unitCenter: THREE.Vector3) => {
-    const d = unitCenter.clone().sub(assemblyCenter)
-    if (axis === undefined) return d
+  const origin = medianCenter([...unitCenters.values()], assemblyCenter)
+  const displacementOf = (key: string, unitCenter: THREE.Vector3) => {
+    const d = unitCenter.clone().sub(origin)
+    if (axis === undefined) return options.mode === 'radial' ? alongOwnAxis(d, sizes?.get(key)) : d
     const axial = d.getComponent(axis)
     return d.set(0, 0, 0).setComponent(axis, axial)
   }
 
   const displacements = new Map<string, THREE.Vector3>()
-  for (const [key, unitCenter] of unitCenters) displacements.set(key, displacementOf(unitCenter))
+  for (const [key, unitCenter] of unitCenters) displacements.set(key, displacementOf(key, unitCenter))
 
   const localFactor = new Map<string, number>()
   if (options.sequential) {

@@ -16,11 +16,11 @@ import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import * as THREE from 'three'
 import { useModelStore } from '../hooks/useModelState'
 import { useDevice } from '../hooks/useDevice'
-import { fitCameraToObject } from '../utils/cameraFit'
+import { applyClipRange, applyFrame, fitCameraToObject, frameGoal, gridForBounds, modelBounds } from '../utils/cameraFit'
 import { applyDisplayMode } from '../utils/displayMode'
-import { VIEW_DEFINITIONS, getViewDistance } from '../utils/cameraViews'
+import { VIEW_DEFINITIONS } from '../utils/cameraViews'
 import { animateCameraTo, isCameraAnimating } from '../utils/animateCamera'
-import { collectMeshes, collectPartNodeIds, findNodeById } from '../utils/componentTree'
+import { collectMeshes, collectPartNodeIds, findNodeById, getPrimaryMaterial } from '../utils/componentTree'
 import { buildPartGroups } from '../utils/explodeModes'
 import { activeClippingPlanes } from '../utils/clippingPlanes'
 import { PrintCutPlanes } from './PrintCutPlanes'
@@ -58,7 +58,7 @@ import {
   type FlowTrajectoryShape,
 } from '../utils/flowTrajectory'
 import type { CameraState, ComponentNode, ScreenRect, ViewPreset } from '../types/model'
-import { zoomToFitGoal, zoomToRectGoal } from '../utils/cameraNavigation'
+import { zoomToRectGoal } from '../utils/cameraNavigation'
 
 const MEASURE_MARKER_COLOR = '#ef4444'
 const MEASURE_LINE_COLOR = '#fde047'
@@ -364,6 +364,7 @@ function AnimationController() {
   const timedRuntime = useRef(new Map<string, TimedRuntime>())
   const registeredInitial = useRef(new Set<string>())
   const explodeAppliedRef = useRef(0)
+  const needsFitRef = useRef(false)
   const lastResetRequestId = useRef(0)
 
   const partNodeIds = useMemo(() => (tree ? collectPartNodeIds(tree) : []), [tree])
@@ -456,7 +457,7 @@ function AnimationController() {
     }
   }, [object, tree])
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     if (!object || !tree) return
 
     if (!animationsPaused) {
@@ -481,9 +482,14 @@ function AnimationController() {
 
     if ((explodeFactor !== 0 || explodeAppliedRef.current !== 0) && assemblyCenter && partNodeIds.length > 0) {
       const damping = 1 - Math.exp(-delta * 6)
+      const moving = explodeAppliedRef.current !== explodeFactor
       explodeAppliedRef.current = THREE.MathUtils.lerp(explodeAppliedRef.current, explodeFactor, damping)
       if (Math.abs(explodeAppliedRef.current - explodeFactor) < 0.0005) {
         explodeAppliedRef.current = explodeFactor
+        // Once the parts have come to rest: if the spread-out model no longer
+        // fits, back the camera off (same angle) until it does - exploded
+        // parts used to leave the screen. Never zooms in on its own.
+        if (moving && explodeFactor > 0) needsFitRef.current = true
       }
       const options = { mode: explodeMode, sequential: explodeSequential, detail: explodeDetail }
       applyExplode(
@@ -515,6 +521,19 @@ function AnimationController() {
       }
     } else {
       guideLines.visible = false
+    }
+
+    if (needsFitRef.current) {
+      needsFitRef.current = false
+      const controls = state.controls as unknown as { target: THREE.Vector3; update: () => void; enabled: boolean } | null
+      const camera = state.camera as THREE.PerspectiveCamera
+      if (controls && !isCameraAnimating()) {
+        const goal = frameGoal(camera, object, camera.position.clone().sub(controls.target))
+        if (goal && goal.position.distanceTo(goal.target) > camera.position.distanceTo(controls.target) * 1.02) {
+          applyClipRange(camera, goal)
+          animateCameraTo(camera, controls, goal.position, goal.target, 600)
+        }
+      }
     }
   })
 
@@ -630,20 +649,25 @@ function Scene() {
     if (!object || !controlsRef.current) return
 
     const perspectiveCamera = camera as THREE.PerspectiveCamera
-    fitCameraToObject(perspectiveCamera, controlsRef.current, object)
-    // Every part opens in the iso orientation (see cameraFit.ts).
-    useModelStore.getState().setCurrentView('iso')
+    // Every file opens in the start view chosen in Options (ISO by default).
+    const startView = useModelStore.getState().openingPrefs.startView
+    fitCameraToObject(perspectiveCamera, controlsRef.current, object, startView)
+    useModelStore.getState().setCurrentView(startView)
 
-    const initialPosition = camera.position.clone()
-    const initialTarget = controlsRef.current.target.clone()
-    const initialUp = camera.up.clone()
-
+    // "Réinitialiser la vue" (and "État d'origine", which calls it): the same
+    // framing recomputed on the model as it is now - parts hidden or moved
+    // since opening are taken into account - in the start view (read at click
+    // time, so a change in Options applies right away), with the VUES animation.
     setResetView(() => {
-      camera.position.copy(initialPosition)
-      camera.up.copy(initialUp)
-      controlsRef.current?.target.copy(initialTarget)
-      controlsRef.current?.update()
-      useModelStore.getState().setCurrentView('iso')
+      const controls = controlsRef.current
+      if (!controls) return
+      const view = useModelStore.getState().openingPrefs.startView
+      const { direction, up } = VIEW_DEFINITIONS[view]
+      const goal = frameGoal(perspectiveCamera, object, direction, up)
+      if (!goal) return
+      applyClipRange(perspectiveCamera, goal)
+      useModelStore.getState().setCurrentView(view)
+      animateCameraTo(perspectiveCamera, controls, goal.position, goal.target, undefined, goal.up)
     })
   }, [object, camera, setResetView])
 
@@ -770,20 +794,16 @@ function Scene() {
       if (!controls) return
 
       const perspectiveCamera = camera as THREE.PerspectiveCamera
-      // A standard view re-frames the whole part (as in SOLIDWORKS): aimed at
-      // its centre, even after a pan, at the distance that fits it.
-      const box = object ? new THREE.Box3().setFromObject(object) : null
-      const target = box && !box.isEmpty() ? box.getCenter(new THREE.Vector3()) : controls.target.clone()
+      // A standard view re-frames the whole model (as in SOLIDWORKS): the
+      // shared framing of cameraFit.ts, aimed at its centre even after a pan.
       const { direction, up } = VIEW_DEFINITIONS[preset]
-      const distance = object
-        ? getViewDistance(perspectiveCamera, object)
-        : camera.position.distanceTo(target) || 5
-
-      const newPosition = target.clone().add(direction.clone().multiplyScalar(distance))
+      const goal = object ? frameGoal(perspectiveCamera, object, direction, up) : null
+      if (!goal) return
+      applyClipRange(perspectiveCamera, goal)
       // Duration and the change of "up" are handled by the orbiting move
       // (see animateCamera.ts); the button lights up right away.
       useModelStore.getState().setCurrentView(preset)
-      animateCameraTo(perspectiveCamera, controls, newPosition, target, undefined, up)
+      animateCameraTo(perspectiveCamera, controls, goal.position, goal.target, undefined, up)
     }
     setGoToView(goToView)
   }, [object, camera, setGoToView])
@@ -795,8 +815,12 @@ function Scene() {
     const zoomToFit = () => {
       const controls = controlsRef.current
       if (!controls || !object) return
-      const goal = zoomToFitGoal(camera as THREE.PerspectiveCamera, controls.target, object)
-      if (goal) animateCameraTo(camera as THREE.PerspectiveCamera, controls, goal.position, goal.target, 450)
+      // Same framing as the VUES, keeping the current viewing direction.
+      const perspectiveCamera = camera as THREE.PerspectiveCamera
+      const goal = frameGoal(perspectiveCamera, object, camera.position.clone().sub(controls.target))
+      if (!goal) return
+      applyClipRange(perspectiveCamera, goal)
+      animateCameraTo(perspectiveCamera, controls, goal.position, goal.target, 450)
     }
     setZoomToFit(zoomToFit)
   }, [object, camera, setZoomToFit])
@@ -866,12 +890,8 @@ function Scene() {
 
       for (const preset of presets) {
         const { direction, up } = VIEW_DEFINITIONS[preset]
-        const distance = getViewDistance(perspectiveCamera, object)
-        const newPosition = savedTarget.clone().add(direction.clone().multiplyScalar(distance))
-        perspectiveCamera.up.copy(up)
-        camera.position.copy(newPosition)
-        controls.target.copy(savedTarget)
-        controls.update()
+        const goal = frameGoal(perspectiveCamera, object, direction, up)
+        if (goal) applyFrame(perspectiveCamera, controls, goal)
         // r3f's own render loop (frameloop="always") redraws the canvas
         // every animation frame from whatever the camera's current state
         // is - waiting two frames guarantees the pixels about to be read
@@ -923,19 +943,12 @@ function Scene() {
     if (!object || !boundingBox) {
       return { x: 0, y: 0, z: 0, size: 20, cell: 1, section: 5 }
     }
-    const size = boundingBox.getSize(new THREE.Vector3())
-    const center = boundingBox.getCenter(new THREE.Vector3())
-    const maxDim = Math.max(size.x, size.y, size.z) || 1
-    // Centred under the part (not at the file's origin, which can be far
-    // from the geometry) and level with its lowest point: the part stands on it.
-    return {
-      x: center.x,
-      y: boundingBox.min.y,
-      z: center.z,
-      size: maxDim * 6,
-      cell: maxDim / 10 || 1,
-      section: (maxDim / 10 || 1) * 5,
-    }
+    // Centred under the model (not at the file's origin, which can be far
+    // from the geometry) and level with its lowest point: the model stands on
+    // it. 2-3 times its size on readable steps (see gridForBounds) - it was 6
+    // times, which made any model look small on a huge floor.
+    const box = modelBounds(object)
+    return gridForBounds(box.isEmpty() ? boundingBox : box)
   }, [object, boundingBox])
 
   const selectedMeshes = useMemo(() => {

@@ -9,6 +9,9 @@ export interface PivotEntry {
   pivot: THREE.Group
   center: THREE.Vector3
   meshes: THREE.Mesh[]
+  // Assembled bounding-box size (world axes): long parts explode along
+  // their own axis (see explodeModes.ts).
+  size: THREE.Vector3
 }
 
 // Where a selection spins/moves "around its own center": the area-weighted
@@ -110,7 +113,7 @@ export function getOrCreatePivot(
     mesh.position.copy(center).negate()
   }
 
-  const entry: PivotEntry = { pivot, center, meshes }
+  const entry: PivotEntry = { pivot, center, meshes, size: boundingBox.getSize(new THREE.Vector3()) }
   registry.set(key, entry)
   return entry
 }
@@ -257,14 +260,16 @@ export function applyExplode(
 ) {
   const entries = new Map<string, PivotEntry>()
   const centers = new Map<string, THREE.Vector3>()
+  const sizes = new Map<string, THREE.Vector3>()
   for (const nodeId of partNodeIds) {
     const entry = getOrCreatePivot(registry, object, tree, nodeId)
     if (!entry) continue
     entries.set(nodeId, entry)
     centers.set(nodeId, entry.center)
+    sizes.set(nodeId, entry.size)
   }
 
-  const offsets = computeExplodeOffsets(centers, groups, assemblyCenter, factor, options)
+  const offsets = computeExplodeOffsets(centers, groups, assemblyCenter, factor, options, sizes)
   for (const [nodeId, entry] of entries) {
     entry.pivot.position.copy(entry.center).add(offsets.get(nodeId)!)
   }
